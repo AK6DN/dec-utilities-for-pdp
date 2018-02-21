@@ -32,7 +32,7 @@ main.o: main.c $(Common)
 
 install:
 	make
-	cp -v d8tape.exe ../../../tools/exe
+	cp d8tape.exe ../../exe
 
 release:
 	make clean
@@ -44,8 +44,8 @@ test:
 	d8tape test.bin | expand -4 > test.list
 	cp test.list verify.pal
 	macro8x -d -x -m -u verify.pal
-	../dumpbin.pl test.bin > test.dump
-	../dumpbin.pl verify.bin > verify.dump
+	dumpbin8x.pl test.bin > test.dump
+	dumpbin8x.pl verify.bin > verify.dump
 	-diff -s test.dump verify.dump
 	d8tape verify.bin | expand -4 > verify.list
 	-diff -s test.list verify.list

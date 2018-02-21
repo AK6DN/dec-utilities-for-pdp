@@ -3,11 +3,11 @@
 # system dependencies
 ifeq ($(WINDIR),)
 # unix
-BINDIR=../../../tools/bin
+BINDIR=../../bin
 EXE=
 else
 # cygwin
-BINDIR=../../../tools/exe
+BINDIR=../../exe
 EXE=.exe
 endif
 
