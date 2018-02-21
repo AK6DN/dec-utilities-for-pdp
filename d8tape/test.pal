@@ -1,0 +1,921 @@
+TITLE	"simple MEMORY test"
+/
+/ start at 200
+/
+/ switch definitions
+/
+/   <0>     0=BELL at EOP / 1=silent
+/   <1>     0=RUN / 1=STOP and restore loaders
+/   <2:5>   0=all tests / !0=exec this test only
+/   <6:8>   unused
+/   <9:11>  FIELD to test, 0...7
+/
+/ ------------------------------------------------------------
+
+/ macro definitions
+
+DEFINE SDF N <
+	 N^10+CDF >
+
+DEFINE SIF N <
+	 N^10+CIF >
+
+/ ------------------------------------------------------------
+
+*0
+INIT,	HLT			/ should never get here
+	HLT			/ should never get here
+	HLT			/ should never get here
+	HLT			/ should never get here
+
+*40
+SSR,	0001			/ software switch register
+PTR,	0			/ memory ptr
+TMP1,	0			/ for print routines
+TMP2,	0			/ ditto
+TMP3,	0			/ ditto
+TMP4,	0			/ ditto
+EXP,	0			/ expected data
+RCV,	0			/ received data
+TEST,	0			/ test number
+PASSES,	0			/ pass count
+ERRORS,	0			/ error count
+MEMBEG,	0			/ start location (computed)
+MEMEND,	7777			/ last location to test
+MEMCNT,	0			/ -count of locations (computed)
+
+R3L=7014 / on HD6120 only
+
+	EJECT
+/ ------------------------------------------------------------
+/
+/ set DF to test value
+
+SETTDF,	0			/ return address
+	SDF 5			/ (replaced during init)
+	SDF 4			/
+	SDF 5			/
+	JMP I SETTDF		/ return
+
+/ ------------------------------------------------------------
+/
+/ set DF to current value
+
+SETCDF,	0			/ return address
+	SIF 5			/ (replaced during init)
+	SIF 4			/
+	SIF 5			/
+	JMP I SETCDF		/ return
+
+	PAGE
+	EJECT
+/ ------------------------------------------------------------
+
+*200
+START,	CLA CLL			/ zero
+	CLA CLL IAC BSW		/ AC=100
+	DCA PASSES		/ init passcount
+	DCA ERRORS		/ init errorcount
+	TFL			/ enable printing
+
+	TAD [-200		/ this many words in bootstrap
+	JMS I [CPMEM		/ copy memory
+	  0^10			/ src field
+	  7600			/ last page
+	  0^10			/ dst field
+	  LOADER		/ copy to here
+	SKP			/ should return here
+	 HLT			/ should not happen
+
+/ ------------------------------------------------------------
+
+LOOP,	CLA			/ zero
+	TAD PASSES		/ get passcount
+	AND [0007		/ low 3 bits
+	TAD [6440		/ make into led IOT
+	DCA LEDS		/ store below
+  	CLA IAC R3L		/ generate 0010 on HD6120 only
+	TAD [-10		/ expected
+	SNA			/ skip if matches
+LEDS,	 HLT			/ SBC6120 cpu, light leds
+
+	JMS I [READSR		/ get switch register
+	RTL ; RAL		/ shift left 3
+	AND [0070		/ mask to 3b field
+	TAD [CDF		/ make CDF <N> instr
+	DCA SETTDF+1		/ store into setup routine
+	RDF			/ get current DF
+	TAD [CDF		/ make CDF <N> instr
+	DCA SETCDF+1		/ store into restore routine
+	DCA TEST		/ init test number
+	JMP I [TST1		/ start
+
+	PAGE
+	EJECT
+/- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+/ TEST 1 - incr count pattern, incr address
+/
+/    pattern is (0000...7777) + PASSES
+
+TST1,	JMS I [CHKTST		/ check test number
+	 -1			/ should be this one
+	 TST2			/ return here to skip test
+
+	JMS I [SETUPI		/ setup data field
+TST1A,	MQL ; MQA		/ save pattern in MQ
+	DCA I PTR		/ store data pattern
+	MQA ; IAC		/ restore pattern and bump
+	JMS I [PTRINC		/ bump ptr
+	ISZ MEMCNT		/ bump count
+	 JMP TST1A		/ loop if hasn't wrapped
+
+	JMS I [SETUPI		/ setup data field
+TST1B,	MQL ; MQA		/ save pattern in MQ
+	CIA			/ invert pattern for test
+	TAD I PTR		/ get data pattern
+	SNA			/ OK if AC is zero
+	 JMP TST1C		/ jump if OK
+	DCA RCV			/ save received
+	MQA			/ get pattern
+	DCA EXP			/ save expected
+	JMS I [PRTERR		/ ***ERROR***
+TST1C,	MQA ; IAC		/ restore pattern and bump
+	JMS I [PTRINC		/ bump ptr
+	ISZ MEMCNT		/ bump count
+	 JMP TST1B		/ loop if hasn't wrapped
+
+	JMS SETCDF		/ back to normal
+
+	EJECT
+/- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+/ TEST 2 - incr count pattern, decr address
+/
+/    pattern is (0000...7777) + PASSES
+
+TST2,	JMS I [CHKTST		/ check test number
+	 -2			/ should be this one
+	 TST3			/ return here to skip test
+
+	JMS I [SETUPD		/ setup data field
+TST2A,	MQL ; MQA		/ save pattern in MQ
+	DCA I PTR		/ store data pattern
+	MQA ; IAC		/ restore pattern and bump
+	JMS I [PTRDEC		/ bump ptr
+	ISZ MEMCNT		/ bump count
+	 JMP TST2A		/ loop if hasn't wrapped
+
+	JMS I [SETUPD		/ setup data field
+TST2B,	MQL ; MQA		/ save pattern in MQ
+	CIA			/ invert pattern for test
+	TAD I PTR		/ get data pattern
+	SNA			/ OK if AC is zero
+	 JMP TST2C		/ jump if OK
+	DCA RCV			/ save received
+	MQA			/ get pattern
+	DCA EXP			/ save expected
+	JMS I [PRTERR		/ ***ERROR***
+TST2C,	MQA ; IAC		/ restore pattern and bump
+	JMS I [PTRDEC		/ bump ptr
+	ISZ MEMCNT		/ bump count
+	 JMP TST2B		/ loop if hasn't wrapped
+
+	JMS SETCDF		/ back to normal
+
+	EJECT
+/- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+/ TEST 3 - incr/shifted count pattern, incr addr
+/
+/    pattern is (0000...7777) rotl (PASSES%16) + PASSES
+
+TST3,	JMS I [CHKTST		/ check test number
+	 -3			/ should be this one
+	 TST4			/ return here to skip test
+
+	JMS I [SETUPI		/ setup data field
+TST3A,	MQL ; MQA		/ save pattern in MQ
+	JMS I [ROTPAT		/ rotate AC left by PASSES%16
+	DCA I PTR		/ store data pattern
+	MQA ; IAC		/ restore pattern and bump
+	JMS I [PTRINC		/ bump ptr
+	ISZ MEMCNT		/ bump count
+	 JMP TST3A		/ loop if hasn't wrapped
+
+	JMS I [SETUPI		/ setup data field
+TST3B,	MQL ; MQA		/ save pattern in MQ
+	JMS I [ROTPAT		/ rotate AC left by PASSES%16
+	CIA			/ invert pattern for test
+	TAD I PTR		/ get data pattern
+	SNA			/ OK if AC is zero
+	 JMP TST3C		/ jump if OK
+	DCA RCV			/ save received
+	MQA			/ get pattern
+	JMS I [ROTPAT		/ rotate AC left by PASSES%16
+	DCA EXP			/ save expected
+	JMS I [PRTERR		/ ***ERROR***
+TST3C,	MQA ; IAC		/ restore pattern and bump
+	JMS I [PTRINC		/ bump ptr
+	ISZ MEMCNT		/ bump count
+	 JMP TST3B		/ loop if hasn't wrapped
+
+	JMS SETCDF		/ back to normal
+
+	EJECT
+/- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+/ TEST 4 - incr/shifted count pattern, decr addr
+/
+/    pattern is (0000...7777) rotl (PASSES%16) + PASSES
+
+TST4,	JMS I [CHKTST		/ check test number
+	 -4			/ should be this one
+	 TST5			/ return here to skip test
+
+	JMS I [SETUPD		/ setup data field
+TST4A,	MQL ; MQA		/ save pattern in MQ
+	JMS I [ROTPAT		/ rotate AC left by PASSES%16
+	DCA I PTR		/ store data pattern
+	MQA ; IAC		/ restore pattern and bump
+	JMS I [PTRDEC		/ bump ptr
+	ISZ MEMCNT		/ bump count
+	 JMP TST4A		/ loop if hasn't wrapped
+
+	JMS I [SETUPD		/ setup data field
+TST4B,	MQL ; MQA		/ save pattern in MQ
+	JMS I [ROTPAT		/ rotate AC left by PASSES%16
+	CIA			/ invert pattern for test
+	TAD I PTR		/ get data pattern
+	SNA			/ OK if AC is zero
+	 JMP TST4C		/ jump if OK
+	DCA RCV			/ save received
+	MQA			/ get pattern
+	JMS I [ROTPAT		/ rotate AC left by PASSES%16
+	DCA EXP			/ save expected
+	JMS I [PRTERR		/ ***ERROR***
+TST4C,	MQA ; IAC		/ restore pattern and bump
+	JMS I [PTRDEC		/ bump ptr
+	ISZ MEMCNT		/ bump count
+	 JMP TST4B		/ loop if hasn't wrapped
+
+	JMS SETCDF		/ back to normal
+
+	EJECT
+/- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+/ TEST 5 - decr/shifted count pattern, incr addr
+/
+/    pattern is (7777...0000) rotl (PASSES%16) + PASSES
+
+TST5,	JMS I [CHKTST		/ check test number
+	 -5			/ should be this one
+	 TST6			/ return here to skip test
+
+	JMS I [SETUPI		/ setup data field
+TST5A,	MQL ; MQA		/ save pattern in MQ
+	JMS I [ROTPAT		/ rotate AC left by PASSES%16
+	CMA			/ and invert
+	DCA I PTR		/ store data pattern
+	MQA ; IAC		/ restore pattern and bump
+	JMS I [PTRINC		/ bump ptr
+	ISZ MEMCNT		/ bump count
+	 JMP TST5A		/ loop if hasn't wrapped
+
+	JMS I [SETUPI		/ setup data field
+TST5B,	MQL ; MQA		/ save pattern in MQ
+	JMS I [ROTPAT		/ rotate AC left by PASSES%16
+	IAC			/ invert pattern for test
+	TAD I PTR		/ get data pattern
+	SNA			/ OK if AC is zero
+	 JMP TST5C		/ jump if OK
+	DCA RCV			/ save received
+	MQA			/ get pattern
+	JMS I [ROTPAT		/ rotate AC left by PASSES%16
+	CMA			/ and invert
+	DCA EXP			/ save expected
+	JMS I [PRTERR		/ ***ERROR***
+TST5C,	MQA ; IAC		/ restore pattern and bump
+	JMS I [PTRINC		/ bump ptr
+	ISZ MEMCNT		/ bump count
+	 JMP TST5B		/ loop if hasn't wrapped
+
+	JMS SETCDF		/ back to normal
+
+	EJECT
+/- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+/ TEST 6 - decr/shifted count pattern, decr addr
+/
+/    pattern is (7777...0000) rotl (PASSES%16) + PASSES
+
+TST6,	JMS I [CHKTST		/ check test number
+	 -6			/ should be this one
+	 TST7			/ return here to skip test
+
+	JMS I [SETUPD		/ setup data field
+TST6A,	MQL ; MQA		/ save pattern in MQ
+	JMS I [ROTPAT		/ rotate AC left by PASSES%16
+	CMA			/ and invert
+	DCA I PTR		/ store data pattern
+	MQA ; IAC		/ restore pattern and bump
+	JMS I [PTRDEC		/ bump ptr
+	ISZ MEMCNT		/ bump count
+	 JMP TST6A		/ loop if hasn't wrapped
+
+	JMS I [SETUPD		/ setup data field
+TST6B,	MQL ; MQA		/ save pattern in MQ
+	JMS I [ROTPAT		/ rotate AC left by PASSES%16
+	IAC			/ invert pattern for test
+	TAD I PTR		/ get data pattern
+	SNA			/ OK if AC is zero
+	 JMP TST6C		/ jump if OK
+	DCA RCV			/ save received
+	MQA			/ get pattern
+	JMS I [ROTPAT		/ rotate AC left by PASSES%16
+	CMA			/ and invert
+	DCA EXP			/ save expected
+	JMS I [PRTERR		/ ***ERROR***
+TST6C,	MQA ; IAC		/ restore pattern and bump
+	JMS I [PTRDEC		/ bump ptr
+	ISZ MEMCNT		/ bump count
+	 JMP TST6B		/ loop if hasn't wrapped
+
+	JMS SETCDF		/ back to normal
+
+	EJECT
+/- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+/ TEST 7 - random data pattern, incr addr
+/
+/    pattern is (AC<-29*AC+1001) + PASSES
+
+TST7,	JMS I [CHKTST		/ check test number
+	 -7			/ should be this one
+	 TST10			/ return here to skip test
+
+	JMS I [SETUPI		/ setup data field
+	MQL			/ save seed in MQ, clear AC
+TST7A,	JMS I [RAND2		/ AC,MQ <- 29*MQ+1001
+	DCA I PTR		/ store data pattern
+	JMS I [PTRINC		/ bump ptr
+	ISZ MEMCNT		/ bump count
+	 JMP TST7A		/ loop if hasn't wrapped
+
+	JMS I [SETUPI		/ setup data field
+	MQL			/ save seed in MQ, clear AC
+TST7B,	JMS I [RAND2		/ AC,MQ <- 29*MQ+1001
+	CIA			/ negate pattern for test
+	TAD I PTR		/ get data pattern
+	SNA			/ OK if AC is zero
+	 JMP TST7C		/ jump if OK
+	DCA RCV			/ save received
+	MQA			/ get pattern
+	DCA EXP			/ save expected
+	JMS I [PRTERR		/ ***ERROR***
+TST7C,	JMS I [PTRINC		/ bump ptr
+	ISZ MEMCNT		/ bump count
+	 JMP TST7B		/ loop if hasn't wrapped
+
+	JMS SETCDF		/ back to normal
+
+	EJECT
+/- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+
+/ TEST 10 - random data pattern, decr addr
+/
+/    pattern is (AC<-29*AC+1001) + PASSES
+
+TST10,	JMS I [CHKTST		/ check test number
+	 -10			/ should be this one
+	 EOP			/ return here to skip test
+
+	JMS I [SETUPD		/ setup data field
+	MQL			/ save seed in MQ, clear AC
+TST10A,	JMS I [RAND2		/ AC,MQ <- 29*MQ+1001
+	DCA I PTR		/ store data pattern
+	JMS I [PTRDEC		/ bump ptr
+	ISZ MEMCNT		/ bump count
+	 JMP TST10A		/ loop if hasn't wrapped
+
+	JMS I [SETUPD		/ setup data field
+	MQL			/ save seed in MQ, clear AC
+TST10B,	JMS I [RAND2		/ AC,MQ <- 29*MQ+1001
+	CIA			/ negate pattern for test
+	TAD I PTR		/ get data pattern
+	SNA			/ OK if AC is zero
+	 JMP TST10C		/ jump if OK
+	DCA RCV			/ save received
+	MQA			/ get pattern
+	DCA EXP			/ save expected
+	JMS I [PRTERR		/ ***ERROR***
+TST10C,	JMS I [PTRDEC		/ bump ptr
+	ISZ MEMCNT		/ bump count
+	 JMP TST10B		/ loop if hasn't wrapped
+
+	JMS SETCDF		/ back to normal
+	JMP I [EOP		/ done
+
+	PAGE
+	EJECT
+/ ------------------------------------------------------------
+
+/////// END OF PASS ///////
+
+EOP,	ISZ PASSES		/ count passes
+	 SKP			/ don't let it be zero
+	  JMP .-2		/ again
+
+  	CLA			/ zero
+	TAD [-200		/ restore bootstrap from saved
+	JMS I [CPMEM		/ copy memory
+	  0^10			/ src field
+	  LOADER		/ copy to here
+	  0^10			/ dst field
+	  7600			/ last page
+
+	JMS I [READSR		/ get switches
+	SMA			/ skip on SR<0> set
+	 JMS I [PRBEL		/ ring BELL if bit0 clear
+	JMS I [PRAST		/ print message
+	 EOPM1			/ from here
+	TAD PASSES		/ get passcount
+	JMS I [PROCT		/ print octal
+	JMS I [PRAST		/ print message
+	 EOPM2			/ from here
+	TAD SETTDF+1		/ field we are testing
+	CLL RTR ; RAR		/ shift right three bits
+	AND [0007		/ one digit
+	TAD [0260		/ make ascii
+	JMS I [PRCHR		/ print
+	JMS I [PRAST		/ print message
+	 EOPM3			/ from here
+	TAD ERRORS		/ get errorcount
+	JMS I [PROCT		/ print octal
+	JMS I [PREOL		/ print end of line
+
+	JMS I [READSR		/ get switches again
+	RTL			/ isolate SR<1> halt switch
+	SNL			/ skip if set
+	 JMP I [LOOP		/ keep going
+	HLT			/ halt
+	JMP I [LOOP		/ restart
+
+EOPM1,	TEXT "END PASS "
+EOPM2,	TEXT " FIELD "
+EOPM3,	TEXT " ERRORS "
+
+	EJECT
+/ ------------------------------------------------------------
+/
+/ check test number sequence
+/
+/   first word is negative of expected test number
+/   second word is addr of where to go to if skipping this test
+/
+/   uses indirect data address mode
+
+CHKTST,	0			/ return address
+	CLA CLL			/ clear AC LK
+	ISZ TEST		/ bump test number
+	TAD TEST		/ and get it to AC	
+	TAD I CHKTST		/ add negative of expected number
+	SZA			/ should be zero...
+	 HLT			/ ***ERROR***
+	JMS I [READSR		/ get switches
+	AND [1700		/ mask to bits 2-5 only
+	SNA			/ skip if not zero
+	 JMP CHK2		/ zero - execute all tests
+	TAD I CHKTST		/ compare current:selected
+	SNA CLA			/ skip if not equal
+	 JMP CHK2		/ jmp if equal; execute test
+	ISZ CHKTST		/ point to skip-test address
+	TAD I CHKTST		/ get address
+	DCA CHKTST		/ store as return
+	JMP I CHKTST		/ return
+CHK2,	ISZ CHKTST		/ point to skip-test address
+	ISZ CHKTST		/ point to normal return
+	JMP I CHKTST		/ return
+	
+	EJECT
+/ ------------------------------------------------------------
+/
+/ circular rotate AC left by PASSES%16
+/
+/   return with AC updated
+/   uses TMP1-2
+
+SAVEAC=TMP1
+COUNT=TMP2
+
+ROTPAT,	0			/ return address
+	DCA SAVEAC		/ save AC
+	TAD PASSES		/ get passcount
+	AND [17			/ mask to low 4 bits
+	CMA			/ change to 7777..7760 range
+	DCA COUNT		/ save counter
+	TAD SAVEAC		/ get value	
+ROT1,	CLL RAL			/ LK|AC<<1
+	SZL			/ check bit shifted out
+	 IAC			/ was 1, insert into bit11
+	ISZ COUNT		/ count
+	 JMP ROT1		/ loop if more
+	JMP I ROTPAT		/ return
+
+	EJECT
+/ ------------------------------------------------------------
+/
+/ generate random number
+/
+/   return with AC,MQ <- 29*MQ + 1001
+/   uses TMP1-2
+
+COUNT=TMP1
+MULT=TMP2
+
+RAND1,	0			/ return address
+	CLA			/ zap
+	TAD [-35		/ -29
+	DCA COUNT		/ init multiplier
+	CLA MQA			/ AC <- MQ
+	DCA MULT		/ init multiplicand
+RAND1A,	TAD MULT		/ add multiplicand
+	ISZ COUNT		/ decr multiplier
+	 JMP RAND1A		/ loop
+	TAD [1751		/ +1001
+	MQL ; MQA		/ MQ <- AC ; AC <- MQ
+	JMP I RAND1		/ return
+
+/ ------------------------------------------------------------
+/
+/ generate random number
+/
+/   return with AC,MQ <- 29*MQ + 1001
+/   uses TMP1-2
+
+MULT=TMP1
+
+RAND2,	0			/ return address
+	CLA MQA			/ AC <- MQ
+	DCA MULT		/ init multiplicand
+	TAD MULT		/ *1
+	CLL RAL			/ *2
+	CLL RAL			/ *4
+	TAD MULT		/ *5
+	TAD MULT		/ *6
+	TAD MULT		/ *7
+	CLL RAL			/ *14
+	CLL RAL			/ *28
+	TAD MULT		/ *29
+	TAD [1751		/ +1001
+	MQL ; MQA		/ MQ <- AC ; AC <- MQ
+	JMP I RAND2		/ return
+
+	PAGE
+	EJECT
+/ ------------------------------------------------------------
+/
+/ print error message
+/
+/   return with AC=0
+
+PRTERR,	0			/ return address
+	CLA			/ zero
+	TAD ERRORS		/ get error count
+	AND [17			/ get low four bits
+	SZA CLA			/ test
+	 JMP PRTER1		/ skip print
+	JMS SETCDF		/ back to current DF
+	JMS I [PRAST		/ print text
+	 PRTER2			/ header
+	JMS SETTDF		/ back to test DF
+PRTER1,	TAD PASSES		/ get passcount
+	JMS I [PROCT		/ print octal
+	JMS I [PRSPA		/ print a space
+	TAD ERRORS		/ get error count
+	JMS I [PROCT		/ print octal
+	JMS I [PRSPA		/ print space
+	TAD TEST		/ get test number
+	JMS I [PROCT		/ print octal
+	JMS I [PRSPA		/ print a space
+	RDF			/ get data field
+	CLL RTR ; RAR		/ shift right three bits
+	TAD [0260		/ make ascii
+	JMS I [PRCHR		/ print
+	TAD PTR			/ get test address
+	JMS I [PROCT		/ print octal
+	JMS I [PRSPA		/ print a space
+	TAD EXP			/ get expected
+	JMS I [PROCT		/ print octal
+	JMS I [PRSPA		/ print a space
+	TAD RCV			/ received data
+	TAD EXP			/ add back expected
+	JMS I [PROCT		/ print octal
+	JMS I [PREOL		/ end of line
+	ISZ ERRORS		/ count errors
+	 SKP			/ 
+	  JMP .-2		/ don't let go to zero
+	JMP I PRTERR		/ return
+
+PRTER2,	TEXT "_PASS ERRS TEST ADDRS EXPD RCVD_"
+
+	EJECT
+/ ------------------------------------------------------------
+/
+/ copy memory from SRC to DST for COUNT
+/
+/   call:  TAD (-COUNT
+/          JMS CPMEM
+/            SRCFIELD<6:8>
+/            SRCADDRESS<0:11>
+/            DSTFIELD<6:8>
+/            DSTADDRESS<0:11>
+/   return with AC=0
+/   uses indirect data address mode
+
+CPMEM,	0			/ return address
+	DCA CPMEMX		/ save count
+	RDF			/ get current DF
+	TAD [CDF		/ make into CDF<D>
+	DCA CPMEM9		/ save for return
+	RIF			/ get current IF
+	TAD [CDF		/ make into CDF<I>
+	DCA .+1			/ store
+	HLT			/ replaced with CDF<I>	
+	TAD I CPMEM		/ get SRCFIELD
+	TAD [CDF		/ make into CDF<S>
+	DCA CPMEM7		/ store
+	ISZ CPMEM		/ bump
+	TAD I CPMEM		/ get SRCADDR
+	DCA CPMEMS		/ store
+	ISZ CPMEM		/ bump
+	TAD I CPMEM		/ get DSTFIELD
+	TAD [CDF		/ make into CDF<T>
+	DCA CPMEM8		/ store
+	ISZ CPMEM		/ bump
+	TAD I CPMEM		/ get DSTADDR
+	DCA CPMEMD		/ store
+	ISZ CPMEM		/ bump
+CPMEM7,	HLT			/ replaced with CDF<S>
+	TAD I CPMEMS		/ get src data
+	ISZ CPMEMS		/ bump ptr
+	 NOP			/ allow for zero
+CPMEM8,	HLT			/ replaced with CDF<T>
+	DCA I CPMEMD		/ store dst data
+	ISZ CPMEMD		/ bump ptr
+	 NOP			/ allow for zero
+	ISZ CPMEMX		/ count words
+	 JMP CPMEM7		/ loop  
+	CLA			/ zero
+CPMEM9,	HLT			/ replaced with CDF<D>
+	JMP I CPMEM		/ return
+
+CPMEMX,	0			/ -count of words
+CPMEMS,	0			/ source address
+CPMEMD,	0			/ target address
+
+	PAGE
+	EJECT
+/ ------------------------------------------------------------
+/
+/ octal print routine of AC (4 digit)
+/
+/   return with AC=0
+/   uses TMP1-2
+
+VALUE=TMP1
+COUNT=TMP2
+
+PROCT,	0			/ return address
+	CLL RAL			/ rotate into L,AC<0:10>
+	DCA VALUE		/ save number
+	TAD [-4			/ digit count
+	DCA COUNT		/ save
+PROCT1,	TAD VALUE		/ rotate number left 3
+	RTL ; RAL		/
+	DCA VALUE		/ save other bits
+	TAD VALUE		/
+	AND [0007		/ mask digit
+	TAD [0260		/ make ascii
+	JMS I [PRCHR		/ print one char
+	ISZ COUNT		/ count digits
+	 JMP PROCT1		/ loop
+	JMP I PROCT		/ return
+
+	EJECT
+/ ------------------------------------------------------------
+/
+/ text print routine, addr of string in next word
+/ string is two 6b characters per word
+/ 00(@) to terminate string, 37(_) prints CRLF sequence
+/
+/   return with AC=0
+/   uses TMP1
+/   uses indirect data address mode
+
+STPTR=TMP1
+
+PRAST,	0			/ return address
+	CLA			/ zero
+	TAD I PRAST		/ get ptr to string
+	DCA STPTR		/ store ptr
+	ISZ PRAST		/ bump addr +1
+PRAST1,	TAD I STPTR		/ get two chars
+	BSW			/ move upper 6b to low
+	JMS PRAST2		/ go print
+	TAD I STPTR		/ get two chars
+	JMS PRAST2		/ go print
+	ISZ STPTR		/ bump ptr
+	JMP PRAST1		/ loop	
+
+/ print one 6b char in AC<6:11> as 8b ascii
+
+PRAST2,	0			/ return address
+	AND [77			/ mask low 6b
+	SNA			/ skip if not 00
+	 JMP I PRAST		/ return from caller
+	TAD [-37		/ check for 37
+	SZA			/ skip if 37
+	 JMP PRAST3		/ jmp if not 37
+	JMS I [PREOL		/ print CRLF
+	JMP I PRAST2		/ return
+PRAST3,	SPA			/ skip if 40..77
+	 TAD [100		/ 01..36 maps to 301..336
+	TAD [237		/ 40..77 maps to 240..277
+	JMS I [PRCHR		/ print character
+	JMP I PRAST2		/ return
+
+/ TEXT ~@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\]^_~ / 00..37 -> 300..337
+/ TEXT ~ !"#$%&'()*+,-./0123456789:;<=>?~ / 40..77 -> 240..277
+
+	EJECT
+/ ------------------------------------------------------------
+/
+/ print a SPACE
+/
+/   return with AC=0
+
+PRSPA,	0			/ return address
+	CLA			/ zero
+	TAD [240		/ SP
+	JMS I [PRCHR		/ print one char
+	JMP I PRSPA		/ return
+
+/ ------------------------------------------------------------
+/
+/ print a BELL
+/
+/   return with AC=0
+
+PRBEL,	0			/ return address
+	CLA			/ zero
+	TAD [207		/ BELL
+	JMS I [PRCHR		/ print one char
+	JMP I PRBEL		/ return
+
+/ ------------------------------------------------------------
+/
+/ print a CRLF sequence
+/
+/   return with AC=0
+
+PREOL,	0			/ return address
+	CLA			/ zero
+	TAD [215		/ CR
+	JMS I [PRCHR		/ print one char
+	TAD [212		/ CR
+	JMS I [PRCHR		/ print one char
+	JMP I PREOL		/ return
+
+/ ------------------------------------------------------------
+/
+/ print one character from AC
+/
+/   return with AC=0
+
+PRCHR,	0			/ return address
+	TSF			/ wait for done
+	 JMP .-1		/ loop until done
+	AND [177		/ mask to 7 bits
+	TLS			/ print character
+	CLA			/ zero
+	JMP I PRCHR		/ return
+
+	EJECT
+/ ------------------------------------------------------------
+/
+/ get h/w or s/w switch register, as appropriate
+/
+/   return with AC=SR
+
+READSR,	0			/ return address
+	CLA IAC R3L		/ generate 0010 on HD6120 only
+	TAD [-10		/ expected
+	SZA			/ skip if matches
+	 JMP .+3		/ non-6120 cpu, go do LAS
+	TAD SSR			/ load s/w switches
+	SKP			/ skip over next
+	 LAS			/ load h/w switches
+	JMP I READSR		/ return
+
+	EJECT
+/ ------------------------------------------------------------
+/
+/ ptr <- ptr+1
+/ uses TMP1
+
+SAVEAC=TMP1
+
+PTRINC,	0			/ return address
+	DCA SAVEAC		/ save AC
+	IAC			/ +1
+	TAD PTR			/ PTR+1
+	DCA PTR			/ save
+	TAD SAVEAC		/ restore AC
+	JMP I PTRINC		/ return
+
+/ ------------------------------------------------------------
+/
+/ ptr <- ptr-1
+/ uses TMP1
+
+SAVEAC=TMP1
+
+PTRDEC,	0			/ return address
+	DCA SAVEAC		/ save AC
+	CMA			/ -1
+	TAD PTR			/ PTR-1
+	DCA PTR			/ save
+	TAD SAVEAC		/ restore AC
+	JMP I PTRDEC		/ return
+
+	EJECT
+/ ------------------------------------------------------------
+/
+/ set DF to current test field, adjust PTR as necessary
+/
+/   setup MEMBEG,MEMCNT depending upon DF selected
+/   setup PTR to MEMBEG or MEMEND
+/   return with AC=PASSES
+
+SETUPI,	0			/ return address
+	JMS SETUPX		/ common setup
+	TAD MEMBEG		/ starting test location
+	DCA PTR			/ into memory ptr
+	TAD PASSES		/ get passcount into AC
+	TAD PTR			/ start at ptr
+	JMP I SETUPI		/ return
+
+SETUPD,	0			/ return address
+	JMS SETUPX		/ common setup
+	TAD MEMEND		/ ending test location
+	DCA PTR			/ into memory ptr
+	TAD PASSES		/ get passcount into AC
+	TAD PTR			/ start at ptr
+	JMP I SETUPD		/ return
+
+SETUPX,	0			/ return address
+	JMS SETTDF		/ set test data field
+	CLA CLL			/ clear AC and LK
+	TAD SETTDF+1		/ get test DF
+	CIA			/ negate for test
+	TAD SETCDF+1		/ get current DF
+	SNA CLA			/ skip if not equal; clr AC
+	 JMP SETUP1		/ jmp if equal
+	DCA MEMBEG		/ set MEMBEG to 0000
+	DCA MEMCNT		/ set MEMCNT to -10000
+	JMP SETUP2		/ continue
+SETUP1,	TAD [MEMTST		/ first free location
+	DCA MEMBEG		/ set MEMBEG to MEMTST
+	TAD MEMEND		/ MEMEND
+	CMA			/ -(MEMEND+1)
+	TAD MEMBEG		/ MEMBEG-(MEMEND+1)
+	DCA MEMCNT		/ into MEMCNT
+SETUP2,	JMP I SETUPX		/ return
+
+	EJECT
+/ ------------------------------------------------------------
+
+	PAGE			/ start of next page
+LOADER,	ZBLOCK 200		/
+
+/ ------------------------------------------------------------
+
+	PAGE			/ start of next page
+MEMTST,				/ dummy
+
+/ ------------------------------------------------------------
+
+/ autostart program after download via RIMLDR
+
+*0				/ page 0
+	LITBAS			/ force all literals out
+*7751				/ align to RIMLDR location
+	START			/ addr of program start
+	KCC			/ first instr in std RIMLDR
+	TAD .-1			/ get KCC instr
+	DCA .+2			/ restore into RIMLDR
+	JMP I .-4		/ start program
+	JMP .-3			/ overlay first word of RIMLDR
+
+$ / the end
