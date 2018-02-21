@@ -71,7 +71,7 @@ unless ($NOERROR
        --verbose            verbose status reporting
        --tape=FILENAME      name of SIMH .tap file
        --dump               dump tape contents
-       --extract            extract tape contents to files
+       --extract[=TOPATH]   extract tape contents to files in path
        --insert FILES...    insert files to tape
        --path PATH          directory for file access [.]
 EOF
