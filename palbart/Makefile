@@ -37,7 +37,7 @@ clean:
 		rm -f $(BIN)
 
 install:
-		cp $(BIN) $(BINDIR)
+		cp -v -p $(BIN) $(BINDIR)
 
 # make the palbart binary
 palbart$(EXE):	palbart.c

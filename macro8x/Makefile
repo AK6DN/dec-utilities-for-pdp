@@ -37,7 +37,7 @@ clean:
 		rm -f $(BIN)
 
 install:
-		cp $(BIN) $(BINDIR)
+		cp -v -p $(BIN) $(BINDIR)
 
 # make the macro8x binary
 macro8x$(EXE):	macro8x.c

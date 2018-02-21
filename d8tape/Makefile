@@ -25,14 +25,15 @@ LDFLAGS = $(DEBUG)
 
 Common = Makefile
 
+all:   d8tape
+
 d8tape: $(OBJECTS)
 	cc $(CFLAGS) -o d8tape $(OBJECTS) version.c $(LDFLAGS)
 
 main.o: main.c $(Common)
 
 install:
-	make
-	cp d8tape.exe ../../exe
+	cp -v -p d8tape.exe ../../exe
 
 release:
 	make clean
