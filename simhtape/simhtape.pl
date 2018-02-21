@@ -9,6 +9,7 @@ use Getopt::Long;
 use Pod::Text;
 use FindBin;
 use FileHandle;
+use Time::Local;
 use File::Spec;
 use File::Basename;
 use File::Path qw( make_path );
@@ -106,6 +107,8 @@ sub _dump_tape {
 
     my ($tape) = @_;
 
+    # always do some printing
+    $VERBOSE = 1;
     printf STDERR "Dumping tape image file '%s' ...\n", $tape if $VERBOSE;
 
     # init some stats
@@ -249,7 +252,10 @@ sub _read_tape {
 	    } elsif ($buflen == 80 && substr($buf, 0, 4) eq 'EOF1') {
 		# EOF1 info we don;t use except to close file
 		printf STDERR "%s file=%s close\n", substr($buf,0,4), $filename if $DEBUG;
+		# done
 		close($ofh);
+		# set the access and modification times from the source media
+		utime(&_yyddd2stamp($filedate), &_yyddd2stamp($filedate), File::Spec->catfile($PATH, $filename));
 	    } elsif ($buflen == 80 && substr($buf, 0, 4) eq 'EOF2') {
 		# EOF2 info we don't use
 	    } elsif ($buflen == 80 && substr($buf, 0, 4) eq 'VOL1') {
@@ -327,11 +333,15 @@ sub _write_tape {
 
 		# strip any leading path from name, make uppercase
 		my $filename = uc((File::Spec->splitpath($fullname))[-1]);
-		my $filedate = 99050;
+
+		# last modified date for the file to YYDDD format
+		my ($dd,$mm,$yy) = (localtime((stat($ifh))[9]))[3,4,5];
+		my $filedate = &_ddmmyy2yyddd($dd,$mm+1,$yy);
 
 		# write header1 label
 		$buf = sprintf("%-4s%-17s%-6s%04d%04d%04d%02d %05d %05d%1s%06d%-13s%-7s",
-			       'HDR1', $filename, $vollab, 1, ++$filenumb, 1, 0, $filedate, $filedate, '', 0, 'DECRSTS/E', '');
+			       'HDR1', $filename, $vollab, 1, ++$filenumb, 1, 0,
+			       $filedate, $filedate, '', 0, 'DECRSTS/E', '');
 		$wrote = &_write($ofh, length($hdr), \$hdr);
 		$wrote = &_write($ofh, length($buf), \$buf);
 		$wrote = &_write($ofh, length($hdr), \$hdr);
@@ -368,7 +378,8 @@ sub _write_tape {
 
 		# write trailer1 label
 		$buf = sprintf("%-4s%-17s%-6s%04d%04d%04d%02d %05d %05d%1s%06d%-13s%-7s",
-			       'EOF1', $filename, $vollab, 1, $filenumb, 1, 0, $filedate, $filedate, '', $blocks, 'DECRSTS/E', '');
+			       'EOF1', $filename, $vollab, 1, $filenumb, 1, 0,
+			       $filedate, $filedate, '', $blocks, 'DECRSTS/E', '');
 		$wrote = &_write($ofh, length($hdr), \$hdr);
 		$wrote = &_write($ofh, length($buf), \$buf);
 		$wrote = &_write($ofh, length($hdr), \$hdr);
@@ -461,6 +472,8 @@ sub rad50dec {
     return $str;
 }
 
+################################################################################
+
 # rad50 encoder
 
 sub rad50enc {
@@ -478,12 +491,74 @@ sub rad50enc {
     return pack 'n*', @out;
 }
 
+################################################################################
+
 # space trim
 
 sub trim {
     my ($str) = join('',@_);
     $str =~ s/\s+$//g;
     return $str;
+}
+
+################################################################################
+
+# Date (dd[1-31],mm[1-12],yy[00-99]) to DayOfYear (yyddd)
+
+sub _ddmmyy2yyddd {
+
+    my ($dom,$mon,$year) = @_;
+
+    # correct year for various formats
+    $year += 2000 if $year <= 69; # 00..69 => 2000..2069
+    $year += 1900 if $year <= 99; # 70..99 => 1970..1999
+    $year  = 1999 if $year >= 2000; # display max is '99'
+
+    # table of day-of-year offsets per month
+    my @doy = (0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334);
+
+    # correct for leap year
+    my $leap = &_isleapyear($year) && $doy[$mon-1] >= 59 ? 1 : 0;
+
+    # return encoded date word
+    return ($year-1900)*1000 + $doy[$mon-1] + $dom + $leap;
+}
+
+################################################################################
+
+# DayOfYear (yyddd) to unix timestamp
+
+sub _yyddd2stamp {
+
+    my ($date) = @_;
+
+    my $year = int($date/1000)+1900; # encoded year
+    my $doy = $date%1000;            # encoded day of year
+
+    my @dpm = (31,28,31, 30,31,30, 31,31,30, 31,30,31); # days per month
+    my @mon = ('JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'); # names
+    $dpm[1]++ if &_isleapyear($year);                   # fixup FEB leap year
+    
+    # turn day-of-year into day-of-month and month-of-year
+    my $mon = 0; while ($mon <= $#mon) { last if $doy <= $dpm[$mon]; $doy -= $dpm[$mon++]; }
+
+    # range check day
+    $doy = 1 if $doy < 1;
+    $doy = $dpm[$mon] if $doy > $dpm[$mon];
+
+    # return a system timestamp as 12 noon on the given date
+    return timelocal(0,0,12, $doy,$mon,$year);
+}
+
+################################################################################
+
+# leap year routine
+
+sub _isleapyear {
+
+    my ($year) = @_;
+
+    return (($year % 4 == 0) && ($year % 100 != 0)) || ($year % 400 == 0);
 }
 
 ################################################################################
