@@ -337,6 +337,8 @@ sub _write_tape {
 		# last modified date for the file to YYDDD format
 		my ($dd,$mm,$yy) = (localtime((stat($ifh))[9]))[3,4,5];
 		my $filedate = &_ddmmyy2yyddd($dd,$mm+1,$yy);
+		printf STDERR "filename='%s' filedate=%05d datestamp=%02d/%02d/%02d\n",
+		              $filename, $filedate, $dd, $mm+1, $yy+1900 if $DEBUG;
 
 		# write header1 label
 		$buf = sprintf("%-4s%-17s%-6s%04d%04d%04d%02d %05d %05d%1s%06d%-13s%-7s",
@@ -503,16 +505,15 @@ sub trim {
 
 ################################################################################
 
-# Date (dd[1-31],mm[1-12],yy[00-99]) to DayOfYear (yyddd)
+# Date (dd[1-31],mm[1-12],yy[00-199]) to DayOfYear (yyddd)
 
 sub _ddmmyy2yyddd {
 
     my ($dom,$mon,$year) = @_;
 
     # correct year for various formats
-    $year += 2000 if $year <= 69; # 00..69 => 2000..2069
-    $year += 1900 if $year <= 99; # 70..99 => 1970..1999
-    $year  = 1999 if $year >= 2000; # display max is '99'
+    $year += 1900;
+### $year = 1999 if $year >= 2000;
 
     # table of day-of-year offsets per month
     my @doy = (0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334);
@@ -521,7 +522,7 @@ sub _ddmmyy2yyddd {
     my $leap = &_isleapyear($year) && $doy[$mon-1] >= 59 ? 1 : 0;
 
     # return encoded date word
-    return ($year-1900)*1000 + $doy[$mon-1] + $dom + $leap;
+    return ($year%100)*1000 + $doy[$mon-1] + $dom + $leap;
 }
 
 ################################################################################
@@ -532,8 +533,8 @@ sub _yyddd2stamp {
 
     my ($date) = @_;
 
-    my $year = int($date/1000)+1900; # encoded year
-    my $doy = $date%1000;            # encoded day of year
+    my $year = int($date/1000)+1900; $year += 100 if $year <= 1949;
+    my $doy = $date%1000;
 
     my @dpm = (31,28,31, 30,31,30, 31,31,30, 31,30,31); # days per month
     my @mon = ('JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC'); # names
