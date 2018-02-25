@@ -30,16 +30,20 @@ my $VERBOSE = 0; # set to 1 for verbose messages
 my $TAPE = 'NONE'; # set to filename of .tap file
 my $MODE = 'NONE'; # set to DUMP, EXTRACT, INSERT
 my $PATH = '.'; # path to directory for EXTRACT of files
+my $BLOCKSIZE = 512; # default tape blocksize
+my $TEXTMODE = 1; # set for text files, cleared for binary files
 
 # process command line arguments
-my $NOERROR = GetOptions( "help"       => \$HELP,
-			  "debug:1"    => \$DEBUG,
-			  "verbose"    => \$VERBOSE,
-			  "tape=s"     => \$TAPE,
-			  "path=s"     => \$PATH,
-			  "dump"       => sub { $MODE = 'DUMP'; },
-			  "extract:s"  => sub { $MODE = 'EXTRACT'; $PATH = $_[1] if $_[1]; },
-			  "insert"     => sub { $MODE = 'INSERT'; },
+my $NOERROR = GetOptions( "help"        => \$HELP,
+			  "debug:1"     => \$DEBUG,
+			  "verbose"     => \$VERBOSE,
+			  "blocksize=i" => \$BLOCKSIZE,
+			  "binarymode"  => sub { $TEXTMODE = 0; },
+			  "textmode"    => sub { $TEXTMODE = 1; },
+			  "tape=s"      => \$TAPE,
+			  "dump"        => sub { $MODE = 'DUMP'; },
+			  "extract:s"   => sub { $MODE = 'EXTRACT'; $PATH = $_[1] if $_[1]; },
+			  "insert"      => sub { $MODE = 'INSERT'; },
 			  );
 
 # init
@@ -70,22 +74,26 @@ unless ($NOERROR
        --help               output manpage and exit
        --debug=N            enable debug mode 'N'
        --verbose            verbose status reporting
+       --binarymode         transfer files as binary data
+       --textmode           transfer files as ascii text
+       --blocksize=N        tape blocksize, default 512 bytes
        --tape=FILENAME      name of SIMH .tap file
        --dump               dump tape contents
        --extract[=TOPATH]   extract tape contents to files in path
        --insert FILES...    insert files to tape
-       --path PATH          directory for file access [.]
 EOF
     # exit if errors...
     die "Aborted due to command line errors.\n";
 }
 
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+################################################################################
+
+# global data
 
 my @r50asc = split('', ' ABCDEFGHIJKLMNOPQRSTUVWXYZ$.?0123456789');
 my %irad50 = map {$r50asc[$_],$_} (0..$#r50asc);
 
-# - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
+################################################################################
 
 # process tape file
 
@@ -120,7 +128,7 @@ sub _dump_tape {
     if (open(my $ifh, '<', $tape)) {
 
 	# some support code
-	sub _dump { my ($p,$s) = @_; join(',',map(sprintf("%02X",$_),unpack($p,$s))); }
+	sub _dump ($$) { my ($p,$s) = @_; return join(',',map(sprintf("%02X",$_),unpack($p,$s))); }
 
 	# loop over whole tape image file
 	while (1) {
@@ -208,6 +216,7 @@ sub _read_tape {
     printf STDERR "Reading tape image file '%s' ...\n", $tape if $VERBOSE;
 
     # init some stats
+    my $istextmode = $TEXTMODE;
     my $tapemark = 0;
     my $vollabel = '';
     my $filename = '';
@@ -244,14 +253,15 @@ sub _read_tape {
 		$filename = &trim(substr($buf, 4, 17));
 		$filedate = substr($buf, 42, 5);
 		printf STDERR "Extracting file '%s' (%s)\n", $filename, $filedate if $VERBOSE;
-		printf STDERR "%s file=%s date=%s close\n", substr($buf,0,4), $filename, $filedate if $DEBUG;
+		printf STDERR "  %s file=%s date=%s\n", substr($buf,0,4), $filename, $filedate if $DEBUG;
 		make_path($PATH);
 		open($ofh, '>', File::Spec->catfile($PATH, $filename)) || die;
+		$istextmode = $TEXTMODE;
 	    } elsif ($buflen == 80 && substr($buf, 0, 4) eq 'HDR2') {
 		# HDR2 info we don't use
 	    } elsif ($buflen == 80 && substr($buf, 0, 4) eq 'EOF1') {
 		# EOF1 info we don;t use except to close file
-		printf STDERR "%s file=%s close\n", substr($buf,0,4), $filename if $DEBUG;
+		printf STDERR "  %s file=%s close\n", substr($buf,0,4), $filename if $DEBUG;
 		# done
 		close($ofh);
 		# set the access and modification times from the source media
@@ -261,12 +271,13 @@ sub _read_tape {
 	    } elsif ($buflen == 80 && substr($buf, 0, 4) eq 'VOL1') {
 		# VOL1 has volume label
 		$vollabel = substr($buf, 4, 6);
+		printf STDERR "  %s label=%s\n", substr($buf,0,4), $vollabel if $DEBUG;
 	    } else {
-		# prune trailing zero bytes in record
+		# prune trailing zero bytes in record, if TEXTMODE
 		my $skplen = 0;
-		while (ord(substr($buf,$buflen-$skplen-1,1)) == 0 && $skplen < $buflen) { ++$skplen; }
+		if ($istextmode) { while (ord(substr($buf,$buflen-$skplen-1,1)) == 0 && $skplen < $buflen) { ++$skplen; } }
 		my $wrote = &_write($ofh, $buflen-$skplen, \$buf);
-		printf STDERR "DATA %d (%d)\n", $wrote, -$skplen if $DEBUG;
+		printf STDERR "  DATA %d (%d)\n", $wrote, -$skplen if $DEBUG;
 	    }
 
 	    # SIMH format has a record trailer
@@ -301,21 +312,16 @@ sub _write_tape {
 
     # local state
     my $vollab = 'RSTS';
-    my $blksiz = 512;
-    my $wrote = 0;
+    my $opsys = 'DECRSTS/E';
     my $buf = undef;
-    my $hdr = pack('V', 80);
-    my $dat = pack('V', $blksiz);
-    
+
     # output file descriptor
     if (open(my $ofh, '>', $tape)) {
 
 	# write volume label
 	$buf = sprintf("%-4s%-6s%-1s%-26s%-14s%-28s%-1s",
 		       'VOL1', $vollab, '', '', 'D%B44310100101', '', '3');
-	$wrote = &_write($ofh, length($hdr), \$hdr);
-	$wrote = &_write($ofh, length($buf), \$buf);
-	$wrote = &_write($ofh, length($hdr), \$hdr);
+	&_write_record($ofh, $buf);
 
 	# locals
 	my $filenumb = 0;
@@ -326,10 +332,10 @@ sub _write_tape {
 	    printf STDERR "Copy file '%s' ...\n", $fullname if $VERBOSE;
 
 	    # locals
-	    my $blocks = 0; # count blocks written
+	    my $blocks = 0; # count blocks written per file
 
 	    # open data file for reading
-	    if (open(my $ifh, '<', File::Spec->catfile($fullname))) {
+	    if (open(my $ifh, '<', $fullname)) {
 
 		# strip any leading path from name, make uppercase
 		my $filename = uc((File::Spec->splitpath($fullname))[-1]);
@@ -343,69 +349,55 @@ sub _write_tape {
 		# write header1 label
 		$buf = sprintf("%-4s%-17s%-6s%04d%04d%04d%02d %05d %05d%1s%06d%-13s%-7s",
 			       'HDR1', $filename, $vollab, 1, ++$filenumb, 1, 0,
-			       $filedate, $filedate, '', 0, 'DECRSTS/E', '');
-		$wrote = &_write($ofh, length($hdr), \$hdr);
-		$wrote = &_write($ofh, length($buf), \$buf);
-		$wrote = &_write($ofh, length($hdr), \$hdr);
+			       $filedate, $filedate, '', 0, $opsys, '');
+		&_write_record($ofh, $buf);
 
 		# write header2 label
 		$buf = sprintf("%-4s%1s%05d%05d%21s%1s%13s%02d%28s",
-			       'HDR2', 'U', $blksiz, 0, '', 'M', '', 0, '');
-		$wrote = &_write($ofh, length($hdr), \$hdr);
-		$wrote = &_write($ofh, length($buf), \$buf);
-		$wrote = &_write($ofh, length($hdr), \$hdr);
+			       'HDR2', 'U', $BLOCKSIZE, 0, '', 'M', '', 0, '');
+		&_write_record($ofh, $buf);
 
 		# write a record mark
-		$buf = pack('V', 0);
-		$wrote = &_write($ofh, length($buf), \$buf);
+		&_write_mark($ofh, 0);
 
-		# copy all the data, blocked to 512 byte records
-		while ((my $count = &_read($ifh, $blksiz, \$buf)) > 0) {
-		    # write a data block
-		    $wrote = &_write($ofh, length($dat), \$dat);
-		    $wrote = &_write($ofh, length($buf), \$buf);
-		    if ($count < $blksiz) {
-			# pad out short blocks to blocksize
-			$buf = pack(sprintf("x[%d]",$blksiz-$count));
-			$wrote += &_write($ofh, length($buf), \$buf);
-		    }
-		    $wrote = &_write($ofh, length($dat), \$dat);
+		# copy all the data, blocked to $BLOCKSIZE byte records
+		while ((my $count = &_read($ifh, $BLOCKSIZE, \$buf)) > 0) {
+
+		    # zero extend the record to $BLOCKSIZE if too short
+		    $buf .= "\x00" x ($BLOCKSIZE - $count) if $count < $BLOCKSIZE;
+
+		    # write the data block
+		    &_write_record($ofh, $buf);
+
 		    # count blocks
 		    ++$blocks;
 		}
 
 		# write a record mark
-		$buf = pack('V', 0);
-		$wrote = &_write($ofh, length($buf), \$buf);
+		&_write_mark($ofh, 0);
 
 		# write trailer1 label
 		$buf = sprintf("%-4s%-17s%-6s%04d%04d%04d%02d %05d %05d%1s%06d%-13s%-7s",
 			       'EOF1', $filename, $vollab, 1, $filenumb, 1, 0,
 			       $filedate, $filedate, '', $blocks, 'DECRSTS/E', '');
-		$wrote = &_write($ofh, length($hdr), \$hdr);
-		$wrote = &_write($ofh, length($buf), \$buf);
-		$wrote = &_write($ofh, length($hdr), \$hdr);
+		&_write_record($ofh, $buf);
 
 		# write trailer2 label
 		$buf = sprintf("%-4s%1s%05d%05d%21s%1s%13s%02d%28s",
-			       'EOF2', 'U', $blksiz, 0, '', 'M', '', 0, '');
-		$wrote = &_write($ofh, length($hdr), \$hdr);
-		$wrote = &_write($ofh, length($buf), \$buf);
-		$wrote = &_write($ofh, length($hdr), \$hdr);
+			       'EOF2', 'U', $BLOCKSIZE, 0, '', 'M', '', 0, '');
+		&_write_record($ofh, $buf);
 
 		# write a record mark
-		$buf = pack('V', 0);
-		$wrote = &_write($ofh, length($buf), \$buf);
+		&_write_mark($ofh, 0);
 
 		close($ifh);
 	    }
 		
 	} # foreach my $filename
 
-	# write an end of media as two record marks
-	$buf = pack('V', 0);
-	$wrote = &_write($ofh, length($buf), \$buf);
-	$wrote = &_write($ofh, length($buf), \$buf);
+	# write an end of media as two consecutive record marks
+	&_write_mark($ofh, 0);
+	&_write_mark($ofh, 0);
 
 	# we be done
 	close($ofh);
@@ -454,6 +446,60 @@ sub _write {
 
     return $offset;
 
+}
+
+################################################################################
+
+# write a formatted .tap tape mark
+
+sub _write_mark {
+
+    my ($fh, $value) = @_;
+
+    my $received;
+    my $expected;
+    my $record = pack('V', $value);
+
+    # write 4byte tape mark record
+    $expected = length($record);
+    $received = &_write($fh, $expected, \$record);
+    printf STDERR "Warning: tape mark write error; expected=%d, received=%d\n",
+                  $expected, $received unless $expected == $received;
+
+    return;
+}
+
+################################################################################
+
+# write a formatted .tap data record
+
+sub _write_record {
+
+    my ($fh, $record) = @_;
+
+    my $received;
+    my $expected;
+    my $header = pack('V', length($record));
+
+    # write 4byte record header (length of data record, little endian)
+    $expected = length($header);
+    $received = &_write($fh, $expected, \$header);
+    printf STDERR "Warning: header write error; expected=%d, received=%d\n",
+                  $expected, $received unless $expected == $received;
+
+    # write actual data record, as byte stream
+    $expected = length($record);
+    $received = &_write($fh, $expected, \$record);
+    printf STDERR "Warning: record write error; expected=%d, received=%d\n",
+                  $expected, $received unless $expected == $received;
+
+    # write 4byte record trailer (length of data record, little endian)
+    $expected = length($header);
+    $received = &_write($fh, $expected, \$header);
+    printf STDERR "Warning: trailer write error; expected=%d, received=%d\n",
+                  $expected, $received unless $expected == $received;
+
+    return;
 }
 
 ################################################################################
