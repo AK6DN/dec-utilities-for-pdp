@@ -88,13 +88,6 @@ EOF
 
 ################################################################################
 
-# global data
-
-my @r50asc = split('', ' ABCDEFGHIJKLMNOPQRSTUVWXYZ$.?0123456789');
-my %irad50 = map {$r50asc[$_],$_} (0..$#r50asc);
-
-################################################################################
-
 # process tape file
 
 if ($MODE eq 'DUMP') {
@@ -216,11 +209,14 @@ sub _read_tape {
     printf STDERR "Reading tape image file '%s' ...\n", $tape if $VERBOSE;
 
     # init some stats
-    my $istextmode = $TEXTMODE;
-    my $tapemark = 0;
+    my $istextmode = 0;
+    my $blocksize = $BLOCKSIZE;
+    my $blockmode = 'U';
     my $vollabel = '';
     my $filename = '';
     my $filedate = '';
+    my $filemode = '';
+    my $tapemark = 0;
     my $ofh = undef;
 
     # input file descriptor
@@ -232,69 +228,106 @@ sub _read_tape {
 
 	    # read the 4B record length, little endian
 	    my $prelen = &_read($ifh, 4, \$pre);
-	    last if $prelen == -1 || $prelen == 0; # exit on EOF, no more data
+	    last if $prelen <= 0; # exit on EOF, no more data
 	    my $preval = unpack('V', $pre);
+	    printf STDERR "\n  prelen=%d preval=%d\n", $prelen, $preval if $DEBUG >= 2;
 
 	    # a value of zero is a tape mark
-	    next if $prelen == 4 && $preval == 0;
+	    if ($prelen == 4 && $preval == 0) {
+		# a tape mark
+		if (defined($ofh) && $filename ne '' && $filemode eq 'DOS11') {
+		    # status
+		    printf STDERR "  close file '%s' mode '%s'\n", $filename, $filemode if $DEBUG;
+		    # close the file
+		    close($ofh);
+		    # set the access and modification times from the source media
+		    utime(&_yyddd2stamp($filedate), &_yyddd2stamp($filedate), File::Spec->catfile($PATH, $filename));
+		    # done
+		    $filename = '';
+		    $filemode = '';
+		}
+		# count them
+		$tapemark++;
+		printf STDERR "  TAPE MARK #%d\n", $tapemark if $DEBUG;
+		# two in a row is EOF/EOM
+		last if $tapemark >= 2;
+		# else loop
+		next;
+	    }
 
-	    # a value of -1 indicates EOF, as well as two sequential tapemarks
-	    last if $tapemark == 2 || $prelen == 4 && $preval == 0xFFFFFFFF;
-
-	    # reset tapemark flag
+	    # not a tape mark
 	    $tapemark = 0;
 
-	    # read next data record depending upon prefix length
+	    # read following data record depending upon prefix length
 	    my $buflen = &_read($ifh, $preval, \$buf);
-
-	    # process header vs data vs trailer
-	    if ($buflen == 80 && substr($buf, 0, 4) eq 'HDR1') {
-		# HDR1 has filename
-		$filename = &trim(substr($buf, 4, 17));
-		$filedate = substr($buf, 42, 5);
-		printf STDERR "Extracting file '%s' (%s)\n", $filename, $filedate if $VERBOSE;
-		printf STDERR "  %s file=%s date=%s\n", substr($buf,0,4), $filename, $filedate if $DEBUG;
-		make_path($PATH);
-		open($ofh, '>', File::Spec->catfile($PATH, $filename)) || die;
-		$istextmode = $TEXTMODE;
-	    } elsif ($buflen == 80 && substr($buf, 0, 4) eq 'HDR2') {
-		# HDR2 info we don't use
-	    } elsif ($buflen == 80 && substr($buf, 0, 4) eq 'EOF1') {
-		# EOF1 info we don;t use except to close file
-		printf STDERR "  %s file=%s close\n", substr($buf,0,4), $filename if $DEBUG;
-		# done
-		close($ofh);
-		# set the access and modification times from the source media
-		utime(&_yyddd2stamp($filedate), &_yyddd2stamp($filedate), File::Spec->catfile($PATH, $filename));
-	    } elsif ($buflen == 80 && substr($buf, 0, 4) eq 'EOF2') {
-		# EOF2 info we don't use
-	    } elsif ($buflen == 80 && substr($buf, 0, 4) eq 'VOL1') {
-		# VOL1 has volume label
-		$vollabel = substr($buf, 4, 6);
-		printf STDERR "  %s label=%s\n", substr($buf,0,4), $vollabel if $DEBUG;
-	    } else {
-		# prune trailing zero bytes in record, if TEXTMODE
-		my $skplen = 0;
-		if ($istextmode) { while (ord(substr($buf,$buflen-$skplen-1,1)) == 0 && $skplen < $buflen) { ++$skplen; } }
-		my $wrote = &_write($ofh, $buflen-$skplen, \$buf);
-		printf STDERR "  DATA %d (%d)\n", $wrote, -$skplen if $DEBUG;
-	    }
+	    printf STDERR "  buflen=%d\n", $buflen if $DEBUG >= 2;
 
 	    # SIMH format has a record trailer
 	    my $suflen = &_read($ifh, 4, \$suf);
 	    my $sufval = unpack('V', $suf);
-
-	    # check for valid format
-	    next if $prelen == 4 && $suflen == 4 && $preval == $sufval && $preval == $buflen;
+	    printf STDERR "  suflen=%d sufval=%d\n", $suflen, $sufval if $DEBUG >= 2;
 
 	    # nope, something is unexpected
-	    printf STDERR "  format error: prelen=%d suflen=%d preval=%d sufval=%d buflen=%d\n",
-	                  $prelen, $suflen, $preval, $sufval, $buflen;
+	    printf STDERR "  Tape read format error: prelen=%d suflen=%d preval=%d sufval=%d buflen=%d\n",
+	                  $prelen, $suflen, $preval, $sufval, $buflen
+			      unless $prelen == 4 && $suflen == 4 && $preval == $sufval && $preval == $buflen;
+
+	    # process header vs data vs trailer
+	    if ($buflen == 14) {
+		# DOS format label
+		$filename = &trim(&rad50dec((unpack("SS",$buf)))).'.'.&trim(&rad50dec((unpack("x[4]S",$buf))));
+		$filedate = sprintf("%02d%03d",int(unpack("x[10]S",$buf)/1000)+70,unpack("x[10]S",$buf)%1000);
+		$filemode = 'DOS11';
+		make_path($PATH);
+		open($ofh, '>', File::Spec->catfile($PATH, $filename)) || die;
+		$istextmode = 0;
+		printf STDERR "Extracting %s file '%s' (%s)\n", $filemode, $filename, $filedate if $VERBOSE;
+	    } elsif ($buflen == 80 && substr($buf, 0, 4) eq 'HDR1') {
+		# HDR1 has filename
+		$filename = &trim(substr($buf, 4, 17));
+		$filedate = substr($buf, 42, 5);
+		$filemode = 'ANSI';
+		make_path($PATH);
+		open($ofh, '>', File::Spec->catfile($PATH, $filename)) || die;
+		$istextmode = $TEXTMODE;
+		printf STDERR "  %s file=%s date=%s\n", substr($buf,0,4), $filename, $filedate if $DEBUG;
+		printf STDERR "Extracting %s file '%s' (%s)\n", $filemode, $filename, $filedate if $VERBOSE;
+	    } elsif ($buflen == 80 && substr($buf, 0, 4) eq 'HDR2') {
+		# HDR2 has blocksize of data records
+		$blockmode = substr($buf,4,1);
+		$blocksize = 0+substr($buf,5,5);
+		$istextmode = 0 if $blockmode ne 'U';
+		printf STDERR "  %s mode=%s blocksize=%d\n", substr($buf,0,4), $blockmode, $blocksize if $DEBUG;
+	    } elsif ($buflen == 80 && substr($buf, 0, 4) eq 'EOF1') {
+		# EOF1 info we don't use
+		printf STDERR "  %s\n", substr($buf,0,4) if $DEBUG;
+	    } elsif ($buflen == 80 && substr($buf, 0, 4) eq 'EOF2') {
+		# EOF2 info we don't use, just close file
+		printf STDERR "  %s close file '%s' mode '%s'\n", substr($buf,0,4), $filename, $filemode if $DEBUG;
+		# close the file
+		close($ofh);
+		# set the access and modification times from the source media
+		utime(&_yyddd2stamp($filedate), &_yyddd2stamp($filedate), File::Spec->catfile($PATH, $filename));
+		# done
+		$filename = '';
+		$filemode = '';
+	    } elsif ($buflen == 80 && substr($buf, 0, 4) eq 'VOL1') {
+		# VOL1 has volume label
+		$vollabel = substr($buf, 4, 6);
+		printf STDERR "  %s label='%s'\n", substr($buf,0,4), $vollabel if $DEBUG;
+	    } else {
+		# prune trailing zero bytes in record, if TEXTMODE
+		my $skplen = 0;
+		if ($istextmode) { while (ord(substr($buf,$buflen-$skplen-1,1)) == 0 && $skplen < $buflen) { ++$skplen; } }
+		my $wrote = defined($ofh) ? &_write($ofh, $buflen-$skplen, \$buf): 0;
+		printf STDERR "  DATA %d [%d] (%d)\n", $wrote, $blocksize, -$skplen if $DEBUG;
+	    }
 
 	}
 
 	# we be done
-	close($ifh);
+	close($ifh) if defined($ifh);
+	close($ofh) if defined($ofh);
     }
 
     return;
@@ -507,6 +540,7 @@ sub _write_record {
 # rad50 decoder
 
 sub rad50dec {
+    my @r50asc = split('', ' ABCDEFGHIJKLMNOPQRSTUVWXYZ$.?0123456789');
     my $str = '';
     foreach my $word (@_) {
 	my $trip = '';
@@ -525,6 +559,8 @@ sub rad50dec {
 # rad50 encoder
 
 sub rad50enc {
+    my @r50asc = split('', ' ABCDEFGHIJKLMNOPQRSTUVWXYZ$.?0123456789');
+    my %irad50 = map {$r50asc[$_],$_} (0..$#r50asc);
     my ($str) = join('',@_);
     $str .= ' ' x (3 - length($str) % 3) if length($str) % 3;
     my @out = ();
