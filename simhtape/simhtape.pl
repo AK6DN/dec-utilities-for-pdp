@@ -32,12 +32,14 @@ my $MODE = 'NONE'; # set to DUMP, EXTRACT, INSERT
 my $PATH = '.'; # path to directory for EXTRACT of files
 my $BLOCKSIZE = 512; # default tape blocksize
 my $TEXTMODE = 1; # set for text files, cleared for binary files
+my $Y2KMODE = 0; # 0 for max year is 99; 1 for Y2K compatible
 
 # process command line arguments
 my $NOERROR = GetOptions( "help"        => \$HELP,
 			  "debug:1"     => \$DEBUG,
 			  "verbose"     => \$VERBOSE,
 			  "blocksize=i" => \$BLOCKSIZE,
+			  "y2kmode!"    => \$Y2KMODE,
 			  "binarymode"  => sub { $TEXTMODE = 0; },
 			  "textmode"    => sub { $TEXTMODE = 1; },
 			  "tape=s"      => \$TAPE,
@@ -74,6 +76,7 @@ unless ($NOERROR
        --help               output manpage and exit
        --debug=N            enable debug mode 'N'
        --verbose            verbose status reporting
+       --[no]y2kmode        enable year > 1999; default is not
        --binarymode         transfer files as binary data
        --textmode           transfer files as ascii text
        --blocksize=N        tape blocksize, default 512 bytes
@@ -458,7 +461,6 @@ sub _read {
     }
 
     return length($$buffer);
-
 }
 
 ################################################################################
@@ -478,7 +480,6 @@ sub _write {
     }
 
     return $offset;
-
 }
 
 ################################################################################
@@ -593,9 +594,10 @@ sub _ddmmyy2yyddd {
 
     my ($dom,$mon,$year) = @_;
 
-    # correct year for various formats
+    # correct year offset
     $year += 1900;
-### $year = 1999 if $year >= 2000;
+    # and if not Y2K compatible, backup modulo 4 years
+    while (!$Y2KMODE && $year >= 2000) { $year -= 4; }
 
     # table of day-of-year offsets per month
     my @doy = (0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334);
@@ -615,7 +617,7 @@ sub _yyddd2stamp {
 
     my ($date) = @_;
 
-    my $year = int($date/1000)+1900; $year += 100 if $year <= 1949;
+    my $year = int($date/1000)+1900; $year += 100 if $year <= 1969;
     my $doy = $date%1000;
 
     my @dpm = (31,28,31, 30,31,30, 31,31,30, 31,30,31); # days per month
