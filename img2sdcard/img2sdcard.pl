@@ -560,8 +560,25 @@ if (defined($DEVICE) && defined($XMLFILE)) {
 		# undefined unit
 		$st{enabled} = 'false';
 	    }
+	    # get allocated scsi ID, else find an unused one
+	    my $scsiID = $scsi[$unit];
+	    # if it exists, use it
+	    if (!defined($scsiID)) {
+		# else find next unused scsi ID
+		foreach my $try (0..7) {
+		    # search all allocated IDs, find next non-match
+		    if (grep($try == $_, @scsi) == 0) {
+			# found an unused ID, allocate it
+			$scsiID = $try;
+			$scsi[$unit] = $scsiID;
+			# and we are done
+			last;
+		    }
+		}
+		# can't ever get here as there are 8 scsiIDs and only 4 slots
+	    }
 	    # print per unit configuration
-	    printf $fh "    <SCSITarget id=\"%d\">\n", $scsi[$unit];
+	    printf $fh "    <SCSITarget id=\"%d\">\n", $scsiID;
 	    foreach my $key (sort(keys(%st))) {
 		printf $fh "        <%s>%s</%s>\n", $key, $st{$key}, $key;
 	    }
