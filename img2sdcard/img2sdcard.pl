@@ -508,9 +508,11 @@ if (defined($DEVICE) && defined($XMLFILE)) {
 	    );
 
 	# SCSITarget per unit
-	my %st = (            enabled => 'false',  # overwritten
-		        sdSectorStart => '0',      # overwritten
-		          scsiSectors => '311200', # overwritten
+	my %st = (            enabled => 'false',                 # overwritten
+		        sdSectorStart => sprintf("%d",0),         # overwritten
+		          scsiSectors => sprintf("%d",100000),    # overwritten
+		               prodId => sprintf("%-16s",'RA81'), # overwritten
+		               serial => sprintf("%-16d",12345),  # overwritten
 		           deviceType => '0x0',
 		   deviceTypeModifier => '0x0',
 		       bytesPerSector => '512',
@@ -518,8 +520,6 @@ if (defined($DEVICE) && defined($XMLFILE)) {
 		     headsPerCylinder => '255',
 		               vendor => 'SCSItoSD',
 		             revision => '4.71',
-		               prodId => sprintf("%-16s", 'RA81'), # overwritten
-		               serial => sprintf("%-16d", 12345), # overwritten
 		            modePages => '',
 		               quirks => '',
 		                  vpd => '',
@@ -543,22 +543,28 @@ if (defined($DEVICE) && defined($XMLFILE)) {
 	foreach my $unit (0..3) {
 	    # get unit number from list
 	    my $id = $list[$unit];
+	    # (assume) unit is undefined/disabled
+	    $st{enabled} = 'false';
+	    # configure partition start/length
+	    $st{sdSectorStart} = sprintf("%d", 4096);
+	    $st{scsiSectors} = sprintf("%d", 4096);
+	    # fake device type
+	    $st{prodId} = sprintf("%-16s", '*DISABLED*');
+	    # unique serial always
+	    $st{serial} = sprintf("%-16d", 1000+$unit);
 	    # check if less than all units defined
 	    if (defined($id)) {
-		# configure partition start/length
-		$st{sdSectorStart} = $slice{$id}{start};
-		$st{scsiSectors} = $slice{$id}{count};
+		# unit is defined/enabled
 		$st{enabled} = 'true';
-		$st{serial} = sprintf("%-16d", 1000+$unit);
+		# configure partition start/length
+		$st{sdSectorStart} = sprintf("%d", $slice{$id}{start});
+		$st{scsiSectors} = sprintf("%d", $slice{$id}{count});
 		# search type database for next same or larger entry
 		my @types = sort({$disktab{$a}{allocate}<=>$disktab{$b}{allocate}}keys(%disktab));
 		foreach my $type (@types) {
 		    $st{prodId} = sprintf("%-16s", $type);
-		    last if $disktab{$type}{allocate} >= $st{scsiSectors};
+		    last if $disktab{$type}{allocate} >= $slice{$id}{count};
 		}
-	    } else {
-		# undefined unit
-		$st{enabled} = 'false';
 	    }
 	    # get allocated scsi ID, else find an unused one
 	    my $scsiID = $scsi[$unit];
