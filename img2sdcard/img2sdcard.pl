@@ -505,6 +505,8 @@ if (defined($DEVICE) && defined($XMLFILE)) {
 		         mapLunsToIds => 'false',
 		       selectionDelay => '255',
 		         startupDelay => '0',
+		     enableTerminator => 'false', # pcb5.1/v4.8.0 or later
+		            scsiSpeed => '0', # v4.8.0
 	    );
 
 	# SCSITarget per unit
@@ -519,7 +521,7 @@ if (defined($DEVICE) && defined($XMLFILE)) {
 		      sectorsPerTrack => '63',
 		     headsPerCylinder => '255',
 		               vendor => 'SCSItoSD',
-		             revision => '4.71',
+		             revision => '0001',
 		            modePages => '',
 		               quirks => '',
 		                  vpd => '',
