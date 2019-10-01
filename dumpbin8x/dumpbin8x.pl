@@ -22,6 +22,7 @@ my $VERBOSE = 0; # set to 1 for verbose messages
 
 # specific defaults
 my $VERILOG = 0; # set to 1 for verilog format output
+my %OVERRIDE = (); # override values
 my $DISASSEMBLY = 1; # set to 1 for disassembled output
 
 # process command line arguments
@@ -30,6 +31,7 @@ my $NOERROR = GetOptions( "help!"	 => \$HELP,
 			  "verbose!"	 => \$VERBOSE,
 			  "verilog"	 => \$VERILOG,
 			  "disassembly!" => \$DISASSEMBLY,
+			  "override=s"   => sub { foreach my $pair (split(',',$_[1])) { my ($a,$d) = split(':',$pair); $OVERRIDE{oct($a)} = oct($d); } },
 			  );
 
 # init
@@ -60,6 +62,7 @@ unless ($NOERROR && scalar(@ARGV) >= 1) {
        --[no]debug             enable debug mode
        --[no]verbose           verbose status reporting
        --verilog               verilog format output
+       --override=A:D,...      override addr/data values
        --[no]disassembly       disassembly comments
        FILENAME                a filename...
 EOF
@@ -194,6 +197,26 @@ foreach my $filename (@ARGV) {
     close(INP);
 
 } # foreach $filename
+
+# process memory override values
+if (keys(%OVERRIDE) > 0) {
+    printf STDOUT "    // OVERRIDE values\n    //\n" if $VERILOG;
+    foreach my $extaddr (keys(%OVERRIDE)) {
+	my $word = $OVERRIDE{$extaddr};
+	my $field = ($extaddr>>12)&07;
+	my $addr = $extaddr&07777;
+	if ($VERILOG) {
+	    printf STDOUT "    memory[15'o%o%04o] = 12'o%04o;", $field, $addr, $word;
+	    printf STDOUT "    // %s", decode_inst($word, $addr) if $DISASSEMBLY;
+	    printf STDOUT "\n";
+	} else {
+	    printf STDOUT "%o%04o/%04o", $field, $addr, $word;
+	    printf STDOUT "   %s", decode_inst($word, $addr);
+	    printf STDOUT "\n";
+	}
+    }
+    printf STDOUT "    //\n" if $VERILOG;
+}
 
 exit;
 
