@@ -35,6 +35,7 @@ my $READFILE = undef; # image file to read
 my $WRITEFILE = undef; # image file to write
 my $COMPAREFILE = undef; # image file to compare
 my $PARTITIONS = undef; # list of data partitions to create
+my $BOARDREV = 5; # board revision, 5 or 6
 
 # process command line arguments
 my $NOERROR = GetOptions( "help!"	  => \$HELP,
@@ -48,6 +49,7 @@ my $NOERROR = GetOptions( "help!"	  => \$HELP,
 			  "slice=i"       => \$SLICE,
 			  "scsi=s"        => \$SCSI,
 			  "partitions=s"  => \$PARTITIONS,
+			  "boardrev=i"    => \$BOARDREV,
 			  );
 
 # init
@@ -67,6 +69,9 @@ if ($HELP) {
     exit(1);
 }
 
+# check for errors
+$NOERROR = 0 if $BOARDREV < 5 || $BOARDREV > 6;
+
 # check for correct arguments present, print usage if errors
 unless ($NOERROR
 	&& scalar(@ARGV) == 0
@@ -80,6 +85,7 @@ unless ($NOERROR
        --verbose               verbose status reporting
        --device=DEVICE         device SDcard is mounted on (ie, sdd) [REQUIRED]
        --slice=N               logical partition number 5..8         [optional]
+       --boardrev=N            PCB board rev, 5 (default) or 6       [optional]
        --xmlfile=XMLFILE       generated .xml description file       [optional]
        --readfile=IMGFILE      image file to read from disk          [optional]
        --writefile=IMGFILE     image file to write to disk           [optional]
@@ -176,7 +182,7 @@ if (defined($DEVICE) && defined($PARTITIONS)) {
     my $timeout = 10;
 
     # launch fdisk as an interactive subprocess
-    my $exp = Expect->spawn('/sbin/fdisk', $devfile) or die;
+    my $exp = Expect->spawn('/sbin/fdisk', '--color=never', $devfile) or die;
 
     # enable debugging if set to 1
     $exp->exp_internal(0);
@@ -212,7 +218,6 @@ if (defined($DEVICE) && defined($PARTITIONS)) {
 		 [ qr/\nFirst sector.+: /, sub { $exp->send("\n");  exp_continue; } ],
 		 [ qr/\nLast sector.+: /,  sub { $exp->send("\n"); } ] );
 
-
     # change filesystem partition 2 to FAT32
     $exp->expect($timeout,
 		 [ $prompt_cmd,            sub { $exp->send("t\n"); exp_continue; } ],
@@ -223,7 +228,7 @@ if (defined($DEVICE) && defined($PARTITIONS)) {
     foreach my $entry (split(/,/,uc($PARTITIONS))) {
 
 	# partition size; lookup from table, else just use it
-	my $size = exists $disktab{$entry} ? $disktab{$entry}{allocate} : $entry;
+	my $size = exists $disktab{$entry} ? $disktab{$entry}{allocate}-1 : $entry;
 
 	# created partition number
 	my $n = undef;
@@ -492,79 +497,95 @@ if (defined($DEVICE) && defined($COMPAREFILE) && defined($SLICE)) {
 
 if (defined($DEVICE) && defined($XMLFILE)) {
 
+    my $header = 'SCSI2SD';
+    my $config = ($BOARDREV <= 5) ? 'BoardConfig' : 'S2S_BoardCfg';
+    my $target = 'SCSITarget';
+    my $units  = ($BOARDREV <= 5) ? 4 : 6;
+
     if (open(my $fh, '>', $XMLFILE)) {
 
 	# BoardConfig
-	my %bc = (      unitAttention => 'true',
-		     enableDisconnect => 'true',
-		               parity => 'true',
-		          enableScsi2 => 'false',
-		  disableGlitchFilter => 'false',
-		          enableCache => 'false',
-		             selLatch => 'false',
-		         mapLunsToIds => 'false',
-		       selectionDelay => '255',
-		         startupDelay => '0',
-		     enableTerminator => 'false', # pcb5.1/v4.8.0 or later
-		            scsiSpeed => '0', # v4.8.0
+	my %bc = (
+	    # rev 5 or less
+	    disableGlitchFilter => { rev => 5, value => 'false' },
+	    enableCache         => { rev => 5, value => 'false' },
+	    enableDisconnect    => { rev => 5, value => 'true' },
+	    # any rev but variable default
+	    enableScsi2         => { rev => 0, value => ($BOARDREV <= 5 ? 'false' : 'true') },
+	    enableTerminator    => { rev => 0, value => ($BOARDREV <= 5 ? 'false' : 'true') },
+	    # any rev
+	    mapLunsToIds        => { rev => 0, value => 'false' },
+	    parity              => { rev => 0, value => 'true' },
+	    scsiSpeed           => { rev => 0, value => '0' },
+	    selLatch            => { rev => 0, value => 'false' },
+	    selectionDelay      => { rev => 0, value => '255' },
+	    startupDelay        => { rev => 0, value => '0' },
+	    unitAttention       => { rev => 0, value => 'true' },
 	    );
 
 	# SCSITarget per unit
-	my %st = (            enabled => 'false',                 # overwritten
-		        sdSectorStart => sprintf("%d",0),         # overwritten
-		          scsiSectors => sprintf("%d",100000),    # overwritten
-		               prodId => sprintf("%-16s",'RA81'), # overwritten
-		               serial => sprintf("%-16d",12345),  # overwritten
-		           deviceType => '0x0',
-		   deviceTypeModifier => '0x0',
-		       bytesPerSector => '512',
-		      sectorsPerTrack => '63',
-		     headsPerCylinder => '255',
-		               vendor => 'SCSItoSD',
-		             revision => '0001',
-		            modePages => '',
-		               quirks => '',
-		                  vpd => '',
+	my %st = (
+	    # any rev
+	    enabled            => { rev => 0, value => 'false' }, # overwritten
+	    deviceType         => { rev => 0, value => '0x0' },
+	    deviceTypeModifier => { rev => 0, value => '0x0' },
+	    #
+	    bytesPerSector     => { rev => 0, value => '512' },
+	    headsPerCylinder   => { rev => 0, value => '255' },
+	    sectorsPerTrack    => { rev => 0, value => '63' },
+	    #
+	    sdSectorStart      => { rev => 0, value => sprintf("%d",0) }, # overwritten
+	    scsiSectors        => { rev => 0, value => sprintf("%d",100000) }, # overwritten
+	    #
+	    vendor             => { rev => 0, value => 'SCSItoSD' },
+	    prodId             => { rev => 0, value => sprintf("%-16s",'RA81') }, # overwritten
+	    revision           => { rev => 0, value => '0001' },
+	    serial             => { rev => 0, value => sprintf("%-16d",12345) }, # overwritten
+	    quirks             => { rev => 0, value => '' },
+	    # rev 5 or less
+	    modePages          => { rev => 5, value => '' },
+	    vpd                => { rev => 5, value => '' },
 	    );
 
 	# XML header
-	printf $fh "<SCSI2SD>\n";
+	printf $fh "<%s>\n", $header;
 
 	# board configuration
-	printf $fh "    <BoardConfig>\n";
+	printf $fh "    <%s>\n", $config;
 	foreach my $key (sort(keys(%bc))) {
-	    printf $fh "        <%s>%s</%s>\n", $key, $bc{$key}, $key;
+	    printf $fh "        <%s>%s</%s>\n", $key, $bc{$key}{value}, $key
+		if $bc{$key}{rev} == 0 || $bc{$key}{rev} == $BOARDREV;
 	}
-	printf $fh "    </BoardConfig>\n";
+	printf $fh "    </%s>\n", $config;
 
 	# list of defined units and corresponding scsi id
 	my @list = sort({$a <=> $b}keys(%slice));
 	my @scsi = defined($SCSI) ? (split(/,/,$SCSI)) : (0..$#list);
 
-	# exactly four mapped units in SCSItoSD
-	foreach my $unit (0..3) {
+	# mapped units in SCSItoSD
+	for (my $unit = 0; $unit < $units; $unit++) {
 	    # get unit number from list
 	    my $id = $list[$unit];
 	    # (assume) unit is undefined/disabled
-	    $st{enabled} = 'false';
+	    $st{enabled}{value} = 'false';
 	    # configure partition start/length
-	    $st{sdSectorStart} = sprintf("%d", 4096);
-	    $st{scsiSectors} = sprintf("%d", 4096);
+	    $st{sdSectorStart}{value} = sprintf("%d", 4096);
+	    $st{scsiSectors}{value} = sprintf("%d", 4096);
 	    # fake device type
-	    $st{prodId} = sprintf("%-16s", '*DISABLED*');
+	    $st{prodId}{value} = sprintf("%-16s", '*DISABLED*');
 	    # unique serial always
-	    $st{serial} = sprintf("%-16d", 1000+$unit);
+	    $st{serial}{value} = sprintf("%-16d", 1000+$unit);
 	    # check if less than all units defined
 	    if (defined($id)) {
 		# unit is defined/enabled
-		$st{enabled} = 'true';
+		$st{enabled}{value} = 'true';
 		# configure partition start/length
-		$st{sdSectorStart} = sprintf("%d", $slice{$id}{start});
-		$st{scsiSectors} = sprintf("%d", $slice{$id}{count});
+		$st{sdSectorStart}{value} = sprintf("%d", $slice{$id}{start});
+		$st{scsiSectors}{value} = sprintf("%d", $slice{$id}{count});
 		# search type database for next same or larger entry
 		my @types = sort({$disktab{$a}{allocate}<=>$disktab{$b}{allocate}}keys(%disktab));
 		foreach my $type (@types) {
-		    $st{prodId} = sprintf("%-16s", $type);
+		    $st{prodId}{value} = sprintf("%-16s", $type);
 		    last if $disktab{$type}{allocate} >= $slice{$id}{count};
 		}
 	    }
@@ -583,18 +604,19 @@ if (defined($DEVICE) && defined($XMLFILE)) {
 			last;
 		    }
 		}
-		# can't ever get here as there are 8 scsiIDs and only 4 slots
+		# can't ever get here as there are =8 scsiIDs and <8 slots
 	    }
 	    # print per unit configuration
-	    printf $fh "    <SCSITarget id=\"%d\">\n", $scsiID;
+	    printf $fh "    <%s id=\"%d\">\n", $target, $scsiID;
 	    foreach my $key (sort(keys(%st))) {
-		printf $fh "        <%s>%s</%s>\n", $key, $st{$key}, $key;
+		printf $fh "        <%s>%s</%s>\n", $key, $st{$key}{value}, $key
+		    if $st{$key}{rev} == 0 || $st{$key}{rev} == $BOARDREV;
 	    }
-	    printf $fh "    </SCSITarget>\n";
+	    printf $fh "    </%s>\n", $target;
 	} # foreach my $unit ...
 
 	# XML trailer
-	printf $fh "</SCSI2SD>\n";
+	printf $fh "</%s>\n", $header;
 
 	# all done
 	close($fh);
