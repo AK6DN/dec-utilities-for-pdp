@@ -182,7 +182,9 @@ if (defined($DEVICE) && defined($PARTITIONS)) {
     my $timeout = 10;
 
     # launch fdisk as an interactive subprocess
-    my $exp = Expect->spawn('/sbin/fdisk', '--color=never', $devfile) or die;
+    my $exp = Expect->spawn('/sbin/fdisk',
+			    '--color=never', '--wipe=always', '--wipe-partitions=always',
+			    $devfile) or die;
 
     # enable debugging if set to 1
     $exp->exp_internal(0);
@@ -199,8 +201,8 @@ if (defined($DEVICE) && defined($PARTITIONS)) {
 			 $db{SectorCount} = ($exp->matchlist)[1];
 			 $db{SectorSize}  = int($db{ByteCount}/$db{SectorCount}); } ] );
 
-    # compute size of extra FAT partition as about 100MB; use rest for data partitions
-    my $use_size_mb = int($db{ByteCount}/1048576 - 100.5);
+    # compute size of extra FAT partition as about 25MB; use rest for data partitions
+    my $use_size = int(25*1024*1024/$db{SectorSize});
 
     # create logical container partition 1
     $exp->expect($timeout,
@@ -208,7 +210,7 @@ if (defined($DEVICE) && defined($PARTITIONS)) {
 		 [ qr/\nSelect.+: /,       sub { $exp->send("e\n"); exp_continue; } ],
 		 [ qr/\nPartition.+: /,    sub { $exp->send("1\n"); exp_continue; } ],
 		 [ qr/\nFirst sector.+: /, sub { $exp->send("\n");  exp_continue; } ],
-		 [ qr/\nLast sector.+: /,  sub { $exp->send("+".$use_size_mb."M\n"); } ] );
+		 [ qr/\nLast sector.+: /,  sub { $exp->send("-".$use_size."\n"); } ] );
 
     # create filesystem partition 2
     $exp->expect($timeout,
@@ -216,7 +218,7 @@ if (defined($DEVICE) && defined($PARTITIONS)) {
 		 [ qr/\nSelect.+: /,       sub { $exp->send("p\n"); exp_continue; } ],
 		 [ qr/\nPartition.+: /,    sub { $exp->send("2\n"); exp_continue; } ],
 		 [ qr/\nFirst sector.+: /, sub { $exp->send("\n");  exp_continue; } ],
-		 [ qr/\nLast sector.+: /,  sub { $exp->send("\n"); } ] );
+		 [ qr/\nLast sector.+: /,  sub { $exp->send("-8\n"); } ] );
 
     # change filesystem partition 2 to FAT32
     $exp->expect($timeout,
