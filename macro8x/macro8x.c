@@ -171,6 +171,7 @@
 /*                          Added indirect is_xxxx() routine wrappers.        */
 /*                          Commented out debug code and unused variables.    */
 /*    v3.52 27Oct15  DNN  Added LEADER/TRAILER_LENGTH defines to match d8tape */
+/*    v3.53 18Mar20  DNN  Fixed some strings to longer length                 */
 /*                                                                            */
 /******************************************************************************/
 
@@ -3184,7 +3185,7 @@ void printMemoryMap()
 /******************************************************************************/
 void topOfForm( char *title, char *sub_title )
 {
-  char temp[10];
+  char temp[30]; // [10] to [30] donorth 2020-03-18
 
   if (!listfile) return;
   list_pageno++;
@@ -4368,7 +4369,7 @@ void errorLexeme( EMSG_T *mesg, WORD32 col )
 /******************************************************************************/
 void errorSymbol( EMSG_T *mesg, char *name, WORD32 col )
 {
-  char   linecol[12];
+  char   linecol[40]; // [12] to [40] donorth 2020-03-18
   char  *s;
 
   if( pass == 2 )
@@ -4393,7 +4394,7 @@ void errorSymbol( EMSG_T *mesg, char *name, WORD32 col )
 /******************************************************************************/
 void errorMessage( EMSG_T *mesg, WORD32 col )
 {
-  char   linecol[12];
+  char   linecol[40]; // [12] to [40] donorth 2020-03-18
 
   if( pass == 2 )
   {
