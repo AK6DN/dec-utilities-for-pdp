@@ -25,6 +25,7 @@
 #define TAG_INDIRECTFC  0x0400              // target of an indirect flow control (JMS I / JMP I) (only meaningful if not writable)
 
 // segment info
+#include <stdint.h>
 
 typedef struct
 {
