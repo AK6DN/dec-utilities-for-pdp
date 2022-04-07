@@ -74,6 +74,7 @@ EOF
 
 # globals
 my %memory = ();
+my @status = ();
 
 # loop on all input files
 foreach my $filename (@ARGV) {
@@ -138,8 +139,10 @@ foreach my $filename (@ARGV) {
 	    my $word = (($hibyte<<6) | $lobyte) & 07777;
 	    if (is_leader($byte)) {
 		# this is the final checksum
-		printf STDERR "CHKSUM: Computed: %04o, input: %04o -- %s\n",
-		           $chksum, $word, $chksum == $word ? "PASS" : "FAIL";
+		my $result = sprintf("CHKSUM: Computed: %04o, input: %04o -- %s",
+				     $chksum, $word, $chksum == $word ? "PASS" : "FAIL");
+		printf STDERR "FILE: %s\n%s\n", $filename, $result;
+		push(@status, [$filename,$result]);
 		$state = 'DONE';
 	    } else {
 		# this is address or data
@@ -177,18 +180,40 @@ if (keys(%OVERRIDE) > 0) {
 }
 
 # generate output
-foreach my $field (sort({$a<=>$b}keys(%memory))) {
-    foreach my $addr (sort({$a<=>$b}keys(%{$memory{$field}}))) {
-	my $word = $memory{$field}{$addr};
+if (1) {
+    # header
+    foreach my $entry (@status) {
 	if ($VERILOG) {
-	    printf STDOUT "    memory[15'o%o%04o] = 12'o%04o;", $field, $addr, $word;
-	    printf STDOUT "    // %s", decode_inst($word, $addr) if $DISASSEMBLY;
-	    printf STDOUT "\n";
+	    printf STDOUT "    // File: %s; Status: %s\n", $$entry[0], $$entry[1];
 	} else {
-	    printf STDOUT "%o%04o/%04o", $field, $addr, $word;
-	    printf STDOUT "   %s", decode_inst($word, $addr) if $DISASSEMBLY;
-	    printf STDOUT "\n";
+	    printf STDOUT "# File: %s; Status: %s\n", $$entry[0], $$entry[1];
 	}
+    }
+    if ($VERILOG) {
+	printf STDOUT "    //\n";
+    } else {
+	printf STDOUT "#\n";
+    }
+    # body
+    foreach my $field (sort({$a<=>$b}keys(%memory))) {
+	foreach my $addr (sort({$a<=>$b}keys(%{$memory{$field}}))) {
+	    my $word = $memory{$field}{$addr};
+	    if ($VERILOG) {
+		printf STDOUT "    memory[15'o%o%04o] = 12'o%04o;", $field, $addr, $word;
+		printf STDOUT "    // %s", decode_inst($word, $addr) if $DISASSEMBLY;
+		printf STDOUT "\n";
+	    } else {
+		printf STDOUT "%o%04o/%04o", $field, $addr, $word;
+		printf STDOUT "   %s", decode_inst($word, $addr) if $DISASSEMBLY;
+		printf STDOUT "\n";
+	    }
+	}
+    }
+    # trailer
+    if ($VERILOG) {
+	printf STDOUT "    //\n    // the end\n";
+    } else {
+	printf STDOUT "#\n# the end\n";
     }
 }
 
