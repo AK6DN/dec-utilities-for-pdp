@@ -72,6 +72,9 @@ EOF
 
 # ----------------------------------------------------------------------------------------------
 
+# globals
+my %memory = ();
+
 # loop on all input files
 foreach my $filename (@ARGV) {
 
@@ -83,14 +86,7 @@ foreach my $filename (@ARGV) {
     }
     binmode(INP);
 
-    # file source header
-    if ($VERILOG) {
-	printf STDOUT "    //\n";
-	printf STDOUT "    // File: %s\n", $filename;
-	printf STDOUT "    //\n";
-    }
-
-    my ($addr,$field,$newfield,$chksum,$seen) = (0,0,0,0,0);
+    my ($addr,$field,$newfield,$chksum) = (0,0,0,0);
     my ($state,$hibyte,$lobyte) = ('JUNK',-1,-1);
 
     # process content bytes
@@ -101,11 +97,9 @@ foreach my $filename (@ARGV) {
 
 	# RUBOUT deletes next byte
 	if (is_rubout($byte)) {
-	    printf STDOUT "    // " if $VERILOG && $VERBOSE;
-	    printf STDOUT " %-4s %03o\n", 'RUB', $byte if $VERBOSE;
+	    printf STDERR " %-4s %03o\n", 'RUB', $byte if $VERBOSE;
 	    $byte = get_byte(*INP);
-	    printf STDOUT "    // " if $VERILOG && $VERBOSE;
-	    printf STDOUT " %-4s %03o\n", 'RUB', $byte if $VERBOSE;
+	    printf STDERR " %-4s %03o\n", 'RUB', $byte if $VERBOSE;
 	    $byte = get_byte(*INP);
 	}
 	
@@ -122,70 +116,47 @@ foreach my $filename (@ARGV) {
 	if ($state eq 'JUNK') {
 	    # skipping junk
 	    if (is_leader($byte)) { $state = 'SKIP'; }
-	    ($addr,$field,$newfield,$chksum,$seen) = (0,0,0,0,0);
+	    ($addr,$field,$newfield,$chksum) = (0,0,0,0);
 	    ($hibyte,$lobyte) = (-1,-1);
-	    printf STDOUT "    // " if $VERILOG && $VERBOSE;
-	    printf STDOUT " %-4s %s\n", $state, make_str($byte) if $VERBOSE;
+	    printf STDERR " %-4s %s\n", $state, make_str($byte) if $VERBOSE;
 	} elsif ($state eq 'SKIP') {
 	    # eating leader
 	    if (is_leader($byte)) {
-		printf STDOUT "    // " if $VERILOG && $VERBOSE;
-		printf STDOUT " %-4s %03o\n", $state, $byte if $VERBOSE;
+		printf STDERR " %-4s %03o\n", $state, $byte if $VERBOSE;
 		next;
 	    }
 	    $hibyte = $byte;
 	    $state = 'HI';
-	    printf STDOUT "    // " if $VERILOG && $VERBOSE;
-	    printf STDOUT " %-4s %03o\n", $state, $byte if $VERBOSE;
+	    printf STDERR " %-4s %03o\n", $state, $byte if $VERBOSE;
 	} elsif ($state eq 'HI') {
 	    # first byte
 	    $lobyte = $byte;
 	    $state = 'LO';
-	    printf STDOUT "    // " if $VERILOG && $VERBOSE;
-	    printf STDOUT " %-4s %03o\n", $state, $byte if $VERBOSE;
+	    printf STDERR " %-4s %03o\n", $state, $byte if $VERBOSE;
 	} elsif ($state eq 'LO') {
 	    # second byte
 	    my $word = (($hibyte<<6) | $lobyte) & 07777;
 	    if (is_leader($byte)) {
 		# this is the final checksum
-		printf STDOUT "    //\n    // " if $VERILOG;
-		printf STDOUT "CHKSUM: Computed: %04o, input: %04o -- %s\n",
+		printf STDERR "CHKSUM: Computed: %04o, input: %04o -- %s\n",
 		           $chksum, $word, $chksum == $word ? "PASS" : "FAIL";
-		printf STDOUT "    //\n" if $VERILOG;
 		$state = 'DONE';
 	    } else {
 		# this is address or data
 		$chksum = ($chksum + $hibyte + $lobyte) & 07777;
 		if (is_address($hibyte)) {
 		    # address word
-		    printf STDOUT "    //\n" if $VERILOG && $seen;
 		    $addr = $word;
-		    $seen = 0;
-		    printf STDOUT "    // " if $VERILOG && $VERBOSE;
-		    printf STDOUT " %-4s %04o\n", 'ADDR', $word if $VERBOSE;
+		    printf STDERR " %-4s %04o\n", 'ADDR', $word if $VERBOSE;
 		} else {
 		    # data word
-		    if ($VERILOG) {
-			printf STDOUT "    memory[15'o%o%04o] = 12'o%04o;", $field, $addr, $word;
-			printf STDOUT "    // %s", decode_inst($word, $addr) if $DISASSEMBLY;
-			printf STDOUT "\n";
-		    } else {
-			printf STDOUT "%o%04o/%04o", $field, $addr, $word;
-			printf STDOUT "   %s", decode_inst($word, $addr);
-			printf STDOUT "\n";
-		    }
+		    $memory{$field}{$addr} = $word;
 		    $addr = ($addr+1) & 07777;
-		    $seen = 1;
-		    printf STDOUT "    // " if $VERILOG && $VERBOSE;
-		    printf STDOUT " %-4s %04o\n", 'DATA', $word if $VERBOSE;
 		}
-		printf STDOUT "    // " if $VERILOG && $VERBOSE;
-		printf STDOUT " %-4s %o\n", 'FLD', $newfield if $field != $newfield && $VERBOSE;
 		$field = $newfield;
 		$hibyte = $byte;
 		$state = 'HI';
-		printf STDOUT "    // " if $VERILOG && $VERBOSE;
-		printf STDOUT " %-4s %03o\n", $state, $byte if $VERBOSE;
+		printf STDERR " %-4s %03o\n", $state, $byte if $VERBOSE;
 	    }
 	} else { # invalid transition
 	    $state = '????';
@@ -200,24 +171,28 @@ foreach my $filename (@ARGV) {
 
 # process memory override values
 if (keys(%OVERRIDE) > 0) {
-    printf STDOUT "    // OVERRIDE values\n    //\n" if $VERILOG;
     foreach my $extaddr (keys(%OVERRIDE)) {
-	my $word = $OVERRIDE{$extaddr};
-	my $field = ($extaddr>>12)&07;
-	my $addr = $extaddr&07777;
+	$memory{($extaddr>>12)&7}{$extaddr&07777} = $OVERRIDE{$extaddr}&07777;
+    }
+}
+
+# generate output
+foreach my $field (sort({$a<=>$b}keys(%memory))) {
+    foreach my $addr (sort({$a<=>$b}keys(%{$memory{$field}}))) {
+	my $word = $memory{$field}{$addr};
 	if ($VERILOG) {
 	    printf STDOUT "    memory[15'o%o%04o] = 12'o%04o;", $field, $addr, $word;
 	    printf STDOUT "    // %s", decode_inst($word, $addr) if $DISASSEMBLY;
 	    printf STDOUT "\n";
 	} else {
 	    printf STDOUT "%o%04o/%04o", $field, $addr, $word;
-	    printf STDOUT "   %s", decode_inst($word, $addr);
+	    printf STDOUT "   %s", decode_inst($word, $addr) if $DISASSEMBLY;
 	    printf STDOUT "\n";
 	}
     }
-    printf STDOUT "    //\n" if $VERILOG;
 }
 
+# done
 exit;
 
 # ----------------------------------------------------------------------------------------------
@@ -285,66 +260,87 @@ sub decode_inst {
     my ($inst, $addr) = @_;
 
     my $str = '';
-    my @opc = ( "and", "tad", "isz", "dca", "jms", "jmp", "iot", "opr" );
+    my @opc = ( "AND", "TAD", "ISZ", "DCA", "JMS", "JMP", "IOT", "OPR" );
 
     if ($inst <= 05777) { # 0..5 memory reference
 
-	$str = sprintf("%s%s %o", $opc[($inst>>9)&07],
-		       ($inst & 00400) ? " i" : "",
-		       ($inst & 00200) ? ($addr & 07600) | ($inst & 00177) : ($inst & 00177));
+	# compute address as either on page 0 or on current page
+	my $fld = ($addr>>12)&07;
+	my $tgt = ($inst & 0200) == 0200 ? (($addr & 07600)|($inst & 00177)) : ($inst & 00177);
+	$str = sprintf("%s%s %o", $opc[($inst>>9)&07], ($inst & 00400) == 0400 ? " I" : "", $tgt);
+	if ($inst & 0400) {
+	    # indirect
+	    $str = sprintf("%-12s ea=0%04o", $str, $memory{$fld}{$tgt}) if exists $memory{$fld}{$tgt};
+	} else {
+	    # direct
+	    $str = sprintf("%-12s ea=0%04o", $str, $tgt) if  exists $memory{$fld}{$tgt};
+	}
 
     } elsif (($inst & 07000) == 06000) { # 6 i/o transfer
 
-	$str = sprintf("iot %o,%o", ($inst>>3)&077, $inst&07);
+	$str = sprintf("IOT %02o,%01o", ($inst>>3)&077, $inst&07);
 
     } elsif (($inst & 07400) == 07000) { # 7 operate group 1
 
 	# sequence 1
-	if (($inst & 00200) == 00200) { $str .= " cla"; }
-	if (($inst & 00100) == 00100) { $str .= " cll"; }
+	if (($inst & 00200) == 00200) { $str .= " CLA"; }
+	if (($inst & 00100) == 00100) { $str .= " CLL"; }
 	# sequence 2
-	if (($inst & 00040) == 00040) { $str .= " cma"; }
-	if (($inst & 00020) == 00020) { $str .= " cml"; }
+	if (($inst & 00040) == 00040) { $str .= " CMA"; }
+	if (($inst & 00020) == 00020) { $str .= " CML"; }
 	# sequence 3
-	if (($inst & 00001) == 00001) { $str .= " iac"; }
+	if (($inst & 00001) == 00001) { $str .= " IAC"; }
 	# sequence 4
-	if (($inst & 00016) == 00010) { $str .= " rar"; }
-	if (($inst & 00016) == 00004) { $str .= " ral"; }
-	if (($inst & 00016) == 00012) { $str .= " rtr"; }
-	if (($inst & 00016) == 00006) { $str .= " rtl"; }
-	if (($inst & 00016) == 00002) { $str .= " bsw"; }
+	if (($inst & 00016) == 00010) { $str .= " RAR"; }
+	if (($inst & 00016) == 00004) { $str .= " RAL"; }
+	if (($inst & 00016) == 00012) { $str .= " RTR"; }
+	if (($inst & 00016) == 00006) { $str .= " RTL"; }
+	if (($inst & 00016) == 00002) { $str .= " BSW"; }
 	# else
-	if (($inst & 00377) == 00000) { $str .= " nop"; }
-	# done
+	if (($inst & 00377) == 00000) { $str .= " NOP"; }
+	# fixup
+	if ($str eq " CMA IAC") { $str = " CIA"; }
+	if ($str eq " CLL CML") { $str = " STL"; }
+	if ($str eq " CLA RAL") { $str = " GLK"; }
+	# default
+	if ($str eq "") { $str = sprintf("%o", $inst); }
 
     } elsif (($inst & 07401) == 07400) { # 7 operate group 2
 
 	# sequence 1
-	if (($inst & 00110) == 00100) { $str .= " sma"; }
-	if (($inst & 00050) == 00040) { $str .= " sza"; }
-	if (($inst & 00030) == 00020) { $str .= " snl"; }
-	if (($inst & 00110) == 00110) { $str .= " spa"; }
-	if (($inst & 00050) == 00050) { $str .= " sna"; }
-	if (($inst & 00030) == 00030) { $str .= " szl"; }
-	if (($inst & 00170) == 00010) { $str .= " skp"; }
+	if (($inst & 00110) == 00100) { $str .= " SMA"; }
+	if (($inst & 00050) == 00040) { $str .= " SZA"; }
+	if (($inst & 00030) == 00020) { $str .= " SNL"; }
+	if (($inst & 00110) == 00110) { $str .= " SPA"; }
+	if (($inst & 00050) == 00050) { $str .= " SNA"; }
+	if (($inst & 00030) == 00030) { $str .= " SZL"; }
+	if (($inst & 00170) == 00010) { $str .= " SKP"; }
 	# sequence 2
-	if (($inst & 00200) == 00200) { $str .= " cla"; }
+	if (($inst & 00200) == 00200) { $str .= " CLA"; }
 	# sequence 3
-	if (($inst & 00004) == 00004) { $str .= " osr"; }
-	if (($inst & 00002) == 00002) { $str .= " hlt"; }
-	# done
+	if (($inst & 00004) == 00004) { $str .= " OSR"; }
+	if (($inst & 00002) == 00002) { $str .= " HLT"; }
+	# fixup
+	if ($str eq " CLA OSR") { $str = " LAS"; }
+	# default
+	if ($str eq "") { $str = sprintf("%o", $inst); }
 
     } elsif (($inst & 07401) == 07401) { # 7 mq microinstructions
 
 	# sequence 1
-	if (($inst & 00200) == 00200) { $str .= " cla"; }
+	if (($inst & 00200) == 00200) { $str .= " CLA"; }
 	# sequence 2
-	if (($inst & 00100) == 00100) { $str .= " mqa"; }
-	if (($inst & 00020) == 00020) { $str .= " mql"; }
-	# sequence 3
-	# else
-	if (($inst & 00376) == 00000) { $str .= " nop"; }
-	# done
+	if (($inst & 00100) == 00100) { $str .= " MQA"; }
+	if (($inst & 00020) == 00020) { $str .= " MQL"; }
+	# fixup
+	if (($inst & 07777) == 07621) { $str  = " CAM"; }
+	if (($inst & 07777) == 07521) { $str  = " SWP"; }
+	if (($inst & 07777) == 07701) { $str  = " ACL"; }
+	if (($inst & 07777) == 07721) { $str  = " CLA SWP"; }
+	# garbage
+	if (($inst & 00056) != 00000) { $str  = ""; }
+	# default
+	if ($str eq "") { $str = sprintf("%o", $inst); }
 
     }
 

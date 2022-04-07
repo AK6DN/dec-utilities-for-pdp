@@ -10,6 +10,7 @@
 #
 #	2001 01 07	R. Krten		created
 #	2007 10 25	R. Krten		added flow module
+#	2015 01 18	D. North		updated test routines
 #
 #	The "bm" utility in the "core:" target simply increments
 #	the version number -- you can comment out that line with
@@ -20,17 +21,21 @@
 DEBUG = -g2
 OBJECTS = main.o dasm.o flow.o
 
-CFLAGS = $(DEBUG) -Wall
+CFLAGS = $(DEBUG) -Wall -Wno-unused-function
 LDFLAGS = $(DEBUG)
 
-Common = Makefile
+COMMON = Makefile
 
 all:   d8tape
 
-d8tape: $(OBJECTS)
+d8tape: $(OBJECTS) $(COMMON)
 	cc $(CFLAGS) -o d8tape $(OBJECTS) version.c $(LDFLAGS)
 
-main.o: main.c $(Common)
+main.o:	main.c d8tape.h
+
+flow.o:	flow.c d8tape.h
+
+dasm.o:	dasm.c d8tape.h iot.h
 
 install:
 	cp -v -p d8tape.exe ../../exe
@@ -38,18 +43,20 @@ install:
 release:
 	make clean
 	tar cvf d8tape.tar Makefile *.c *.h LICENSE
-	gzip -9v d8tape.tar
 
 test:
 	macro8x -d -x -m -u test.pal
-	d8tape test.bin | expand -4 > test.list
+	./d8tape test.bin | expand -4 > test.list
 	cp test.list verify.pal
 	macro8x -d -x -m -u verify.pal
 	dumpbin8x.pl test.bin > test.dump
 	dumpbin8x.pl verify.bin > verify.dump
 	-diff -s test.dump verify.dump
-	d8tape verify.bin | expand -4 > verify.list
+	./d8tape verify.bin | expand -4 > verify.list
 	-diff -s test.list verify.list
 
 clean:
 	rm -f *.o d8tape.exe
+	rm -f *.lst *.bin *.err *.list *.dump verify.pal
+
+# the end

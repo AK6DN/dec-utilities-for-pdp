@@ -4,11 +4,11 @@ TITLE	"simple MEMORY test"
 /
 / switch definitions
 /
-/   <0>     0=BELL at EOP / 1=silent
-/   <1>     0=RUN / 1=STOP and restore loaders
+/   <0>     0=continue / 1=HALT at EOP
+/   <1>     unused
 /   <2:5>   0=all tests / !0=exec this test only
-/   <6:8>   unused
-/   <9:11>  FIELD to test, 0...7
+/   <6:8>   start FIELD to test, 0..7
+/   <9:11>  end FIELD to test, 0..7
 /
 / ------------------------------------------------------------
 
@@ -17,19 +17,47 @@ TITLE	"simple MEMORY test"
 DEFINE SDF N <
 	 N^10+CDF >
 
-DEFINE SIF N <
-	 N^10+CIF >
-
 / ------------------------------------------------------------
 
 *0
 INIT,	HLT			/ should never get here
-	HLT			/ should never get here
-	HLT			/ should never get here
-	HLT			/ should never get here
+	HLT			/
+	HLT			/
+	HLT			/
+	HLT			/
+	HLT			/
+	HLT			/
+	HLT			/
+	HLT			/
+	HLT			/
+	HLT			/
+	HLT			/
+	HLT			/
+	HLT			/
+	HLT			/
+	HLT			/
+	HLT			/
+	HLT			/
+	HLT			/
+	HLT			/
+	HLT			/
+	HLT			/
+	HLT			/
+	HLT			/
+	HLT			/
+	HLT			/
+	HLT			/
+	HLT			/
+	HLT			/
+	HLT			/
+	HLT			/
+	HLT			/
+
+	EJECT
+/ ------------------------------------------------------------
 
 *40
-SSR,	0001			/ software switch register
+SSR,	0007			/ software switch register
 PTR,	0			/ memory ptr
 TMP1,	0			/ for print routines
 TMP2,	0			/ ditto
@@ -40,6 +68,7 @@ RCV,	0			/ received data
 TEST,	0			/ test number
 PASSES,	0			/ pass count
 ERRORS,	0			/ error count
+MEMFLD,	0			/ memory field under test
 MEMBEG,	0			/ start location (computed)
 MEMEND,	7777			/ last location to test
 MEMCNT,	0			/ -count of locations (computed)
@@ -52,9 +81,7 @@ R3L=7014 / on HD6120 only
 / set DF to test value
 
 SETTDF,	0			/ return address
-	SDF 5			/ (replaced during init)
-	SDF 4			/
-	SDF 5			/
+	HLT			/ (replaced during init)
 	JMP I SETTDF		/ return
 
 / ------------------------------------------------------------
@@ -62,30 +89,24 @@ SETTDF,	0			/ return address
 / set DF to current value
 
 SETCDF,	0			/ return address
-	SIF 5			/ (replaced during init)
-	SIF 4			/
-	SIF 5			/
+	HLT			/ (replaced during init)
 	JMP I SETCDF		/ return
 
-	PAGE
 	EJECT
 / ------------------------------------------------------------
 
 *200
 START,	CLA CLL			/ zero
-	CLA CLL IAC BSW		/ AC=100
 	DCA PASSES		/ init passcount
 	DCA ERRORS		/ init errorcount
 	TFL			/ enable printing
 
-	TAD [-200		/ this many words in bootstrap
-	JMS I [CPMEM		/ copy memory
-	  0^10			/ src field
-	  7600			/ last page
-	  0^10			/ dst field
-	  LOADER		/ copy to here
-	SKP			/ should return here
-	 HLT			/ should not happen
+/ ------------------------------------------------------------
+
+BEGIN,	JMS I [READSR		/ get switch register
+	RTR ; RAR		/ shift right 3
+	AND [0007		/ isolate starting field
+	DCA MEMFLD		/ save in memory test field
 
 / ------------------------------------------------------------
 
@@ -99,7 +120,8 @@ LOOP,	CLA			/ zero
 	SNA			/ skip if matches
 LEDS,	 HLT			/ SBC6120 cpu, light leds
 
-	JMS I [READSR		/ get switch register
+	CLA			/ zero
+	TAD MEMFLD		/ get test field
 	RTL ; RAL		/ shift left 3
 	AND [0070		/ mask to 3b field
 	TAD [CDF		/ make CDF <N> instr
@@ -108,9 +130,8 @@ LEDS,	 HLT			/ SBC6120 cpu, light leds
 	TAD [CDF		/ make CDF <N> instr
 	DCA SETCDF+1		/ store into restore routine
 	DCA TEST		/ init test number
-	JMP I [TST1		/ start
+	JMP I (TST1		/ next
 
-	PAGE
 	EJECT
 /- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
@@ -146,6 +167,7 @@ TST1C,	MQA ; IAC		/ restore pattern and bump
 	 JMP TST1B		/ loop if hasn't wrapped
 
 	JMS SETCDF		/ back to normal
+	JMP I (TST2		/ next
 
 	EJECT
 /- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -182,7 +204,9 @@ TST2C,	MQA ; IAC		/ restore pattern and bump
 	 JMP TST2B		/ loop if hasn't wrapped
 
 	JMS SETCDF		/ back to normal
+	JMP I (TST3		/ next
 
+	PAGE
 	EJECT
 /- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
@@ -221,6 +245,7 @@ TST3C,	MQA ; IAC		/ restore pattern and bump
 	 JMP TST3B		/ loop if hasn't wrapped
 
 	JMS SETCDF		/ back to normal
+	JMP I (TST4		/ next
 
 	EJECT
 /- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -260,6 +285,7 @@ TST4C,	MQA ; IAC		/ restore pattern and bump
 	 JMP TST4B		/ loop if hasn't wrapped
 
 	JMS SETCDF		/ back to normal
+	JMP I (TST5		/ next
 
 	EJECT
 /- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -301,7 +327,9 @@ TST5C,	MQA ; IAC		/ restore pattern and bump
 	 JMP TST5B		/ loop if hasn't wrapped
 
 	JMS SETCDF		/ back to normal
+	JMP I (TST6		/ next
 
+	PAGE
 	EJECT
 /- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
 
@@ -342,6 +370,7 @@ TST6C,	MQA ; IAC		/ restore pattern and bump
 	 JMP TST6B		/ loop if hasn't wrapped
 
 	JMS SETCDF		/ back to normal
+	JMP I (TST7		/ next
 
 	EJECT
 /- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -378,6 +407,7 @@ TST7C,	JMS I [PTRINC		/ bump ptr
 	 JMP TST7B		/ loop if hasn't wrapped
 
 	JMS SETCDF		/ back to normal
+	JMP I (TST10		/ next
 
 	EJECT
 /- - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -414,7 +444,7 @@ TST10C,	JMS I [PTRDEC		/ bump ptr
 	 JMP TST10B		/ loop if hasn't wrapped
 
 	JMS SETCDF		/ back to normal
-	JMP I [EOP		/ done
+	JMP I (EOP		/ next
 
 	PAGE
 	EJECT
@@ -426,17 +456,6 @@ EOP,	ISZ PASSES		/ count passes
 	 SKP			/ don't let it be zero
 	  JMP .-2		/ again
 
-  	CLA			/ zero
-	TAD [-200		/ restore bootstrap from saved
-	JMS I [CPMEM		/ copy memory
-	  0^10			/ src field
-	  LOADER		/ copy to here
-	  0^10			/ dst field
-	  7600			/ last page
-
-	JMS I [READSR		/ get switches
-	SMA			/ skip on SR<0> set
-	 JMS I [PRBEL		/ ring BELL if bit0 clear
 	JMS I [PRAST		/ print message
 	 EOPM1			/ from here
 	TAD PASSES		/ get passcount
@@ -454,12 +473,20 @@ EOP,	ISZ PASSES		/ count passes
 	JMS I [PROCT		/ print octal
 	JMS I [PREOL		/ print end of line
 
-	JMS I [READSR		/ get switches again
-	RTL			/ isolate SR<1> halt switch
-	SNL			/ skip if set
-	 JMP I [LOOP		/ keep going
-	HLT			/ halt
-	JMP I [LOOP		/ restart
+	JMS I [READSR		/ get switches
+	AND [0007		/ isolate last field to test
+	CMA IAC			/ negate
+	TAD MEMFLD		/ compare to current test field
+	SNA CLA			/ test for equal, and clear
+	 JMP EOP1		/ matches, go back to first test field
+	ISZ MEMFLD		/ bump field
+	 NOP			/ ignore test
+	JMP I [LOOP		/ start testing next field
+
+EOP1,	JMS I [READSR		/ get switches again
+	SPA   			/ skip if <0> clear
+	 HLT			/ halt at EOP if requested
+	JMP I [BEGIN		/ matches, go back to first test field
 
 EOPM1,	TEXT "END PASS "
 EOPM2,	TEXT " FIELD "
@@ -529,6 +556,7 @@ ROT1,	CLL RAL			/ LK|AC<<1
 /
 /   return with AC,MQ <- 29*MQ + 1001
 /   uses TMP1-2
+/   multiply by adding
 
 COUNT=TMP1
 MULT=TMP2
@@ -552,6 +580,7 @@ RAND1A,	TAD MULT		/ add multiplicand
 /
 /   return with AC,MQ <- 29*MQ + 1001
 /   uses TMP1-2
+/   multiply by shift/add
 
 MULT=TMP1
 
@@ -674,7 +703,6 @@ CPMEMX,	0			/ -count of words
 CPMEMS,	0			/ source address
 CPMEMD,	0			/ target address
 
-	PAGE
 	EJECT
 / ------------------------------------------------------------
 /
@@ -702,6 +730,7 @@ PROCT1,	TAD VALUE		/ rotate number left 3
 	 JMP PROCT1		/ loop
 	JMP I PROCT		/ return
 
+	PAGE
 	EJECT
 / ------------------------------------------------------------
 /
@@ -895,12 +924,7 @@ SETUP2,	JMP I SETUPX		/ return
 
 	EJECT
 / ------------------------------------------------------------
-
-	PAGE			/ start of next page
-LOADER,	ZBLOCK 200		/
-
-/ ------------------------------------------------------------
-
+/
 	PAGE			/ start of next page
 MEMTST,				/ dummy
 

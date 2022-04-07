@@ -25,30 +25,30 @@
 */
 
 // Select one of the following:
-#define VC8I
-//#define   KV8I
+//#define	VC8I
+//#define	KV8I
 
 // Select PT08 if required; it will override some of the IOTs from the Data Communications System 680/I
-//#define PT08
+//#define	PT08
 
 // Select one of the following:
-#define AF01A
-//#define   AF04A
+//#define	AF01A
+//#define	AF04A
 
 // Select one of the following:
-#define AA01A
-//#define AA05
+//#define	AA01A
+//#define	AA05
 
 // If selecting DP01AA, don't bother with DF32/RF08
-//#define   DP01AA
-#ifndef DP01AA
+//#define	DP01AA
+#ifndef		DP01AA
 // Select one of the following:
-#define DF32
-// #define RF08
-#endif  // DP01AA
+//#define	DF32
+//#define	RF08
+#endif // DP01AA
 
 // Select one of the following:
-#define TA8A
+//#define TA8A
 //#define TC58
 //#define TR02
 

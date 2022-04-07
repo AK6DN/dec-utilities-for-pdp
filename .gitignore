@@ -1,3 +1,7 @@
+# test directories
+d8tape/z_pass
+d8tape/z_fail
+
 # Prerequisites
 *.d
 
