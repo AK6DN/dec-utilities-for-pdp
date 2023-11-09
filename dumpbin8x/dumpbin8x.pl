@@ -15,12 +15,14 @@ use Pod::Text;
 use FindBin;
 
 # generic defaults
-my $VERSION = 'v0.0d0'; # version of code
+my $VERSION = 'v1.0'; # version of code
 my $HELP = 0; # set to 1 for man page output
 my $DEBUG = 0; # set to 1 for debug messages
 my $VERBOSE = 0; # set to 1 for verbose messages
 
 # specific defaults
+my $DUMP = 0; # set to 1 for dump format output
+my $RIMLDR = 0; # set to 1 for RIM LDR format output
 my $VERILOG = 0; # set to 1 for verilog format output
 my %OVERRIDE = (); # override values
 my $DISASSEMBLY = 1; # set to 1 for disassembled output
@@ -29,6 +31,8 @@ my $DISASSEMBLY = 1; # set to 1 for disassembled output
 my $NOERROR = GetOptions( "help!"	 => \$HELP,
 			  "debug!"	 => \$DEBUG,
 			  "verbose!"	 => \$VERBOSE,
+			  "dump"	 => \$DUMP,
+			  "rimldr"	 => \$RIMLDR,
 			  "verilog"	 => \$VERILOG,
 			  "disassembly!" => \$DISASSEMBLY,
 			  "override=s"   => sub { foreach my $pair (split(',',$_[1])) { my ($a,$d) = split(':',$pair); $OVERRIDE{oct($a)} = oct($d); } },
@@ -36,6 +40,9 @@ my $NOERROR = GetOptions( "help!"	 => \$HELP,
 
 # init
 $VERBOSE = 1 if $DEBUG; # debug implies verbose messages
+
+# assume DUMP mode if none specified
+$DUMP = 1 if !$VERILOG && !$RIMLDR; # default to DUMP mode
 
 # say hello
 printf STDERR "%s %s by Don North (perl %g)\n", $0, $VERSION, $] if $VERBOSE;
@@ -55,12 +62,14 @@ if ($HELP) {
 }
 
 # check for correct arguments present, print usage if errors
-unless ($NOERROR && scalar(@ARGV) >= 1) {
+unless ($NOERROR && scalar(@ARGV) >= 1 && $DUMP+$RIMLDR+$VERILOG == 1) {
     print STDERR "Usage: $0 [options...] arguments\n";
     print STDERR <<"EOF";
        --[no]help              output manpage and exit
        --[no]debug             enable debug mode
        --[no]verbose           verbose status reporting
+       --dump                  dump format output (default mode)
+       --rimldr                RIMLDR format output
        --verilog               verilog format output
        --override=A:D,...      override addr/data values
        --[no]disassembly       disassembly comments
@@ -183,37 +192,44 @@ if (keys(%OVERRIDE) > 0) {
 if (1) {
     # header
     foreach my $entry (@status) {
-	if ($VERILOG) {
-	    printf STDOUT "    // File: %s; Status: %s\n", $$entry[0], $$entry[1];
-	} else {
+	if ($DUMP) {
 	    printf STDOUT "# File: %s; Status: %s\n", $$entry[0], $$entry[1];
+	} elsif ($VERILOG) {
+	    printf STDOUT "    // File: %s; Status: %s\n", $$entry[0], $$entry[1];
 	}
-    }
-    if ($VERILOG) {
-	printf STDOUT "    //\n";
-    } else {
+    }	
+    if ($DUMP) {
 	printf STDOUT "#\n";
+    } elsif ($VERILOG) {
+	printf STDOUT "    //\n";
+    } elsif ($RIMLDR) {
+	foreach my $i (1..16) { print STDOUT  chr(0x80); }
     }
     # body
     foreach my $field (sort({$a<=>$b}keys(%memory))) {
 	foreach my $addr (sort({$a<=>$b}keys(%{$memory{$field}}))) {
 	    my $word = $memory{$field}{$addr};
-	    if ($VERILOG) {
-		printf STDOUT "    memory[15'o%o%04o] = 12'o%04o;", $field, $addr, $word;
-		printf STDOUT "    // %s", decode_inst($word, $addr) if $DISASSEMBLY;
-		printf STDOUT "\n";
-	    } else {
+	    if ($DUMP) {
 		printf STDOUT "%o%04o/%04o", $field, $addr, $word;
 		printf STDOUT "   %s", decode_inst($word, $addr) if $DISASSEMBLY;
 		printf STDOUT "\n";
+	    } elsif ($VERILOG) {
+		printf STDOUT "    memory[15'o%o%04o] = 12'o%04o;", $field, $addr, $word;
+		printf STDOUT "    // %s", decode_inst($word, $addr) if $DISASSEMBLY;
+		printf STDOUT "\n";
+	    } elsif ($RIMLDR) {
+		print STDOUT chr(0100+(($addr>>6)&077)), chr(($addr>>0)&077);
+		print STDOUT chr(0000+(($word>>6)&077)), chr(($word>>0)&077);
 	    }
 	}
     }
     # trailer
-    if ($VERILOG) {
-	printf STDOUT "    //\n    // the end\n";
-    } else {
+    if ($DUMP) {
 	printf STDOUT "#\n# the end\n";
+    } elsif ($VERILOG) {
+	printf STDOUT "    //\n    // the end\n";
+    } elsif ($RIMLDR) {
+	foreach my $i (1..16) { print STDOUT  chr(0x80); }
     }
 }
 

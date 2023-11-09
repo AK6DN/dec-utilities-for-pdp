@@ -1,6 +1,7 @@
 # test directories
 d8tape/z_pass
 d8tape/z_fail
+dumpbin8x/test
 
 # Prerequisites
 *.d
