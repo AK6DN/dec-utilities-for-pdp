@@ -2,10 +2,10 @@
 
 #define DY_TRACKS      77
 #define DY_SECTORS     26
-#define DY_NUM_BLOCKS  (DY_TRACKS * DY_SECTORS)
+#define DY_NUM_BLOCKS  ((DY_TRACKS-1) * DY_SECTORS)
 
 
-int lbn2dy(int lbn)
+int lbn2dy (int lbn)
 {
 	int track;
 	int sector;
@@ -33,9 +33,12 @@ int lbn2dy(int lbn)
 
 int main()
 {
-    int n, m;
+    int n, m, t, s;
     for (n = 0;  n < DY_NUM_BLOCKS;  ++n) {
         m = lbn2dy(n);
-        printf("%d: %d %d -> %d: %d %d\n", n, n / DY_SECTORS, n % DY_SECTORS, m, m / DY_SECTORS, m % DY_SECTORS);
+        t = m / DY_SECTORS;
+        s = 1 + (m % DY_SECTORS);
+        printf("Log Blk %4d -> Phy Trk %2d Sec %2d\n", n, t, s);
+        if (n % DY_SECTORS == DY_SECTORS-1) printf("\n");
     }
 }
