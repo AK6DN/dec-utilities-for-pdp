@@ -14,7 +14,7 @@ endif
 # all the bins
 BIN :=d8tape macro8x palbart
 # all the scripts
-SCR :=binchk dumpbin8x hex2mac rx02_image_dump config11 diffrom enet2hex img2sdcard simhtape
+SCR :=binchk dumpbin8x hex2mac rx_image_dump rx_image_convert config11 diffrom enet2hex img2sdcard simhtape
 
 all:		$(BIN)
 		for DIR in $^ ; do cd $$DIR && $(MAKE) $@ ; cd .. ; done
