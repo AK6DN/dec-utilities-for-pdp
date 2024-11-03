@@ -1,4 +1,4 @@
-# makefile for pdp8 support routines
+# makefile for pdp support routines
 
 # system dependencies
 ifeq ($(MAKE_HOST),x86_64-pc-cygwin)
@@ -31,20 +31,23 @@ LFLAGS=-lm
 # system libs
 LIBS=
 
-
 # all the bins
-BIN=palbart$(EXE)
+BIN=lbn2pbn$(EXE)
 
-all:		$(BIN)
+all:	$(BIN)
 
 clean:
-		rm -f $(BIN)
+	rm -f $(BIN) SRC.DSK DST.DSK SRC.RX2 DST.RX2
 
 install:
-		cp -v -p $(BIN) $(BINDIR)
+	cp -v -p $(BIN) $(BINDIR)
 
-# make the palbart binary
-palbart$(EXE):	palbart.c
-		$(CC) $(CFLAGS) $(LFLAGS) $(LIBS) -o $@ $<
+# make the binary
+$(BIN): lbn2pbn.c
+	$(CC) $(CFLAGS) $(LFLAGS) $(LIBS) -o $@ $<
+
+# run a test
+test: $(BIN)
+	cd test && test.sh
 
 # the end

@@ -18,6 +18,21 @@
 #	(or similar) to nullify its effects.
 #
 
+# system dependencies
+ifeq ($(MAKE_HOST),x86_64-pc-cygwin)
+  # cygwin 64b
+  BINDIR=../../exe64
+  EXE=.exe
+else ifeq ($(MAKE_HOST),i686-pc-cygwin)
+  # cygwin 32b
+  BINDIR=../../exe
+  EXE=.exe
+else
+  # unix
+  BINDIR=../../bin
+  EXE=
+endif
+
 DEBUG = -g2
 OBJECTS = main.o dasm.o flow.o
 
@@ -38,7 +53,7 @@ flow.o:	flow.c d8tape.h
 dasm.o:	dasm.c d8tape.h iot.h
 
 install:
-	cp -v -p d8tape.exe ../../exe
+	cp -v -p d8tape$(EXE) $(BINDIR)
 
 release:
 	make clean

@@ -1,14 +1,18 @@
 # makefile for pdp8 support routines
 
 # system dependencies
-ifeq ($(WINDIR),)
-# unix
-BINDIR=../../bin
-EXE=
+ifeq ($(MAKE_HOST),x86_64-pc-cygwin)
+  # cygwin 64b
+  BINDIR=../../exe64
+  EXE=.exe
+else ifeq ($(MAKE_HOST),i686-pc-cygwin)
+  # cygwin 32b
+  BINDIR=../../exe
+  EXE=.exe
 else
-# cygwin
-BINDIR=../../exe
-EXE=.exe
+  # unix
+  BINDIR=../../bin
+  EXE=
 endif
 
 # omit frame pointer option needed for 25% speed improvment

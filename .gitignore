@@ -2,6 +2,7 @@
 d8tape/z_pass
 d8tape/z_fail
 dumpbin8x/test
+lbn2pbn/test
 
 # Prerequisites
 *.d
